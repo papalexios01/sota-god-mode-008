@@ -1,16 +1,104 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useOptimizerStore } from "@/lib/store";
+import { createNeuronWriterService } from "@/lib/sota/NeuronWriterService";
 import { 
   Key, Globe, User, Building, Image, UserCircle, 
   Sparkles, MapPin, Check, AlertCircle, ExternalLink,
-  Settings
+  Settings, Loader2, FolderOpen, RefreshCw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Popular OpenRouter Models
+const OPENROUTER_MODELS = [
+  { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+  { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus' },
+  { id: 'openai/gpt-4o', name: 'GPT-4o' },
+  { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo' },
+  { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5' },
+  { id: 'meta-llama/llama-3.1-405b-instruct', name: 'Llama 3.1 405B' },
+  { id: 'meta-llama/llama-3.1-70b-instruct', name: 'Llama 3.1 70B' },
+  { id: 'mistralai/mixtral-8x22b-instruct', name: 'Mixtral 8x22B' },
+  { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat' },
+  { id: 'cohere/command-r-plus', name: 'Command R+' },
+];
+
+// Popular Groq Models
+const GROQ_MODELS = [
+  { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile' },
+  { id: 'llama-3.1-70b-instant', name: 'Llama 3.1 70B Instant' },
+  { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant' },
+  { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
+  { id: 'gemma2-9b-it', name: 'Gemma 2 9B' },
+  { id: 'llama3-groq-70b-8192-tool-use-preview', name: 'Llama 3 70B Tool Use' },
+];
+
 export function SetupConfig() {
-  const { config, setConfig } = useOptimizerStore();
+  const { 
+    config, 
+    setConfig, 
+    neuronWriterProjects, 
+    setNeuronWriterProjects,
+    neuronWriterLoading,
+    setNeuronWriterLoading,
+    neuronWriterError,
+    setNeuronWriterError
+  } = useOptimizerStore();
+  
   const [verifyingWp, setVerifyingWp] = useState(false);
   const [wpVerified, setWpVerified] = useState<boolean | null>(null);
+  const [customOpenRouterModel, setCustomOpenRouterModel] = useState('');
+  const [customGroqModel, setCustomGroqModel] = useState('');
+  const [showCustomOpenRouter, setShowCustomOpenRouter] = useState(false);
+  const [showCustomGroq, setShowCustomGroq] = useState(false);
+
+  // Fetch NeuronWriter projects when API key changes
+  const fetchNeuronWriterProjects = useCallback(async (apiKey: string) => {
+    if (!apiKey || apiKey.length < 10) {
+      setNeuronWriterProjects([]);
+      setNeuronWriterError(null);
+      return;
+    }
+
+    setNeuronWriterLoading(true);
+    setNeuronWriterError(null);
+
+    try {
+      const service = createNeuronWriterService(apiKey);
+      const result = await service.listProjects();
+
+      if (result.success && result.projects) {
+        setNeuronWriterProjects(result.projects);
+        setNeuronWriterError(null);
+        
+        // Auto-select first project if none selected
+        if (result.projects.length > 0 && !config.neuronWriterProjectId) {
+          setConfig({ 
+            neuronWriterProjectId: result.projects[0].id,
+            neuronWriterProjectName: result.projects[0].name
+          });
+        }
+      } else {
+        setNeuronWriterError(result.error || 'Failed to fetch projects');
+        setNeuronWriterProjects([]);
+      }
+    } catch (error) {
+      console.error('NeuronWriter fetch error:', error);
+      setNeuronWriterError(error instanceof Error ? error.message : 'Unknown error');
+      setNeuronWriterProjects([]);
+    } finally {
+      setNeuronWriterLoading(false);
+    }
+  }, [setNeuronWriterProjects, setNeuronWriterLoading, setNeuronWriterError, config.neuronWriterProjectId, setConfig]);
+
+  // Auto-fetch when API key changes
+  useEffect(() => {
+    if (config.enableNeuronWriter && config.neuronWriterApiKey) {
+      const debounceTimer = setTimeout(() => {
+        fetchNeuronWriterProjects(config.neuronWriterApiKey);
+      }, 500);
+      return () => clearTimeout(debounceTimer);
+    }
+  }, [config.enableNeuronWriter, config.neuronWriterApiKey, fetchNeuronWriterProjects]);
 
   const handleVerifyWordPress = async () => {
     if (!config.wpUrl || !config.wpUsername || !config.wpAppPassword) {
@@ -26,6 +114,44 @@ export function SetupConfig() {
       setWpVerified(false);
     } finally {
       setVerifyingWp(false);
+    }
+  };
+
+  const handleProjectSelect = (projectId: string) => {
+    const project = neuronWriterProjects.find(p => p.id === projectId);
+    setConfig({ 
+      neuronWriterProjectId: projectId,
+      neuronWriterProjectName: project?.name || ''
+    });
+  };
+
+  const handleOpenRouterModelChange = (value: string) => {
+    if (value === 'custom') {
+      setShowCustomOpenRouter(true);
+    } else {
+      setShowCustomOpenRouter(false);
+      setConfig({ openrouterModelId: value });
+    }
+  };
+
+  const handleGroqModelChange = (value: string) => {
+    if (value === 'custom') {
+      setShowCustomGroq(true);
+    } else {
+      setShowCustomGroq(false);
+      setConfig({ groqModelId: value });
+    }
+  };
+
+  const handleCustomOpenRouterSubmit = () => {
+    if (customOpenRouterModel.trim()) {
+      setConfig({ openrouterModelId: customOpenRouterModel.trim() });
+    }
+  };
+
+  const handleCustomGroqSubmit = () => {
+    if (customGroqModel.trim()) {
+      setConfig({ groqModelId: customGroqModel.trim() });
     }
   };
 
@@ -100,7 +226,8 @@ export function SetupConfig() {
           <Sparkles className="w-5 h-5 text-primary" />
           AI Model Configuration
         </h2>
-        <div className="space-y-4">
+        <div className="space-y-6">
+          {/* Primary Model Selection */}
           <div>
             <label className="block text-sm font-medium text-foreground mb-2">
               Primary Generation Model
@@ -113,10 +240,93 @@ export function SetupConfig() {
               <option value="gemini">Google Gemini 2.5 Flash</option>
               <option value="openai">OpenAI GPT-4o</option>
               <option value="anthropic">Anthropic Claude Sonnet 4</option>
-              <option value="openrouter">OpenRouter (Auto-Fallback)</option>
+              <option value="openrouter">OpenRouter (Custom Model)</option>
               <option value="groq">Groq (High-Speed)</option>
             </select>
           </div>
+
+          {/* OpenRouter Model Selection */}
+          {(config.primaryModel === 'openrouter' || config.openrouterApiKey) && (
+            <div className="p-4 bg-background/50 border border-border rounded-xl space-y-3">
+              <label className="block text-sm font-medium text-foreground">
+                OpenRouter Model ID
+              </label>
+              <div className="flex gap-2">
+                <select
+                  value={showCustomOpenRouter ? 'custom' : config.openrouterModelId}
+                  onChange={(e) => handleOpenRouterModelChange(e.target.value)}
+                  className="flex-1 px-4 py-2.5 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  {OPENROUTER_MODELS.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                  <option value="custom">⚙️ Custom Model ID...</option>
+                </select>
+              </div>
+              {showCustomOpenRouter && (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customOpenRouterModel}
+                    onChange={(e) => setCustomOpenRouterModel(e.target.value)}
+                    placeholder="e.g., anthropic/claude-3.5-sonnet:beta"
+                    className="flex-1 px-4 py-2.5 bg-background border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                  <button
+                    onClick={handleCustomOpenRouterSubmit}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-colors"
+                  >
+                    Set
+                  </button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Current: <code className="text-primary">{config.openrouterModelId}</code>
+              </p>
+            </div>
+          )}
+
+          {/* Groq Model Selection */}
+          {(config.primaryModel === 'groq' || config.groqApiKey) && (
+            <div className="p-4 bg-background/50 border border-border rounded-xl space-y-3">
+              <label className="block text-sm font-medium text-foreground">
+                Groq Model ID
+              </label>
+              <div className="flex gap-2">
+                <select
+                  value={showCustomGroq ? 'custom' : config.groqModelId}
+                  onChange={(e) => handleGroqModelChange(e.target.value)}
+                  className="flex-1 px-4 py-2.5 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                  {GROQ_MODELS.map(m => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                  <option value="custom">⚙️ Custom Model ID...</option>
+                </select>
+              </div>
+              {showCustomGroq && (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customGroqModel}
+                    onChange={(e) => setCustomGroqModel(e.target.value)}
+                    placeholder="e.g., llama3-groq-70b-8192-tool-use-preview"
+                    className="flex-1 px-4 py-2.5 bg-background border border-border rounded-xl text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                  <button
+                    onClick={handleCustomGroqSubmit}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-colors"
+                  >
+                    Set
+                  </button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Current: <code className="text-primary">{config.groqModelId}</code>
+              </p>
+            </div>
+          )}
+
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -237,14 +447,81 @@ export function SetupConfig() {
           />
           <span className="text-sm text-foreground">Enable NeuronWriter Integration</span>
         </label>
+        
         {config.enableNeuronWriter && (
-          <InputField
-            label="NeuronWriter API Key"
-            value={config.neuronWriterApiKey}
-            onChange={(v) => setConfig({ neuronWriterApiKey: v })}
-            type="password"
-            placeholder="Enter NeuronWriter key..."
-          />
+          <div className="space-y-4">
+            <InputField
+              label="NeuronWriter API Key"
+              value={config.neuronWriterApiKey}
+              onChange={(v) => setConfig({ neuronWriterApiKey: v })}
+              type="password"
+              placeholder="Enter NeuronWriter key..."
+            />
+            
+            {/* Project Selection */}
+            {config.neuronWriterApiKey && (
+              <div className="p-4 bg-background/50 border border-border rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-foreground flex items-center gap-2">
+                    <FolderOpen className="w-4 h-4 text-primary" />
+                    Select Project
+                  </label>
+                  <button
+                    onClick={() => fetchNeuronWriterProjects(config.neuronWriterApiKey)}
+                    disabled={neuronWriterLoading}
+                    className="text-sm text-primary hover:underline flex items-center gap-1"
+                  >
+                    <RefreshCw className={cn("w-3 h-3", neuronWriterLoading && "animate-spin")} />
+                    Refresh
+                  </button>
+                </div>
+
+                {neuronWriterLoading && (
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Fetching projects...</span>
+                  </div>
+                )}
+
+                {neuronWriterError && (
+                  <div className="flex items-center gap-2 text-red-400 text-sm">
+                    <AlertCircle className="w-4 h-4" />
+                    {neuronWriterError}
+                  </div>
+                )}
+
+                {!neuronWriterLoading && !neuronWriterError && neuronWriterProjects.length > 0 && (
+                  <>
+                    <select
+                      value={config.neuronWriterProjectId}
+                      onChange={(e) => handleProjectSelect(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-background border border-border rounded-xl text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    >
+                      <option value="">Select a project...</option>
+                      {neuronWriterProjects.map(project => (
+                        <option key={project.id} value={project.id}>
+                          {project.name} {project.queries_count !== undefined && `(${project.queries_count} queries)`}
+                        </option>
+                      ))}
+                    </select>
+                    
+                    {config.neuronWriterProjectId && (
+                      <div className="flex items-center gap-2 text-green-400 text-sm">
+                        <Check className="w-4 h-4" />
+                        Selected: <strong>{config.neuronWriterProjectName}</strong>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {!neuronWriterLoading && !neuronWriterError && neuronWriterProjects.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    No projects found. Create a project in NeuronWriter first.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </section>
 

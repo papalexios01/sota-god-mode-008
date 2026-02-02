@@ -11,13 +11,15 @@ import type {
 } from './types';
 import { generationCache } from './cache';
 
-// Model configurations
-const MODEL_CONFIGS: Record<AIModel, { 
-  endpoint: string; 
-  modelId: string; 
+// Model configurations with dynamic model ID support
+interface ModelConfig {
+  endpoint: string;
+  modelId: string;
   weight: number;
   maxTokens: number;
-}> = {
+}
+
+const DEFAULT_MODEL_CONFIGS: Record<AIModel, ModelConfig> = {
   gemini: {
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
     modelId: 'gemini-2.0-flash',
@@ -38,25 +40,53 @@ const MODEL_CONFIGS: Record<AIModel, {
   },
   openrouter: {
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'anthropic/claude-3.5-sonnet',
+    modelId: 'anthropic/claude-3.5-sonnet', // Default, can be overridden
     weight: 0.9,
     maxTokens: 4096
   },
   groq: {
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-    modelId: 'llama-3.3-70b-versatile',
+    modelId: 'llama-3.3-70b-versatile', // Default, can be overridden
     weight: 0.8,
     maxTokens: 4096
   }
 };
 
-export class SOTAContentGenerationEngine {
-  private apiKeys: APIKeys;
-  private onProgress?: (message: string) => void;
+// Extended API Keys interface with custom model IDs
+export interface ExtendedAPIKeys extends APIKeys {
+  openrouterModelId?: string;
+  groqModelId?: string;
+}
 
-  constructor(apiKeys: APIKeys, onProgress?: (message: string) => void) {
+export class SOTAContentGenerationEngine {
+  private apiKeys: ExtendedAPIKeys;
+  private onProgress?: (message: string) => void;
+  private modelConfigs: Record<AIModel, ModelConfig>;
+
+  constructor(apiKeys: ExtendedAPIKeys, onProgress?: (message: string) => void) {
     this.apiKeys = apiKeys;
     this.onProgress = onProgress;
+    
+    // Build model configs with custom model IDs
+    this.modelConfigs = { ...DEFAULT_MODEL_CONFIGS };
+    
+    // Override OpenRouter model if provided
+    if (apiKeys.openrouterModelId) {
+      this.modelConfigs.openrouter = {
+        ...this.modelConfigs.openrouter,
+        modelId: apiKeys.openrouterModelId
+      };
+      this.log(`OpenRouter using custom model: ${apiKeys.openrouterModelId}`);
+    }
+    
+    // Override Groq model if provided
+    if (apiKeys.groqModelId) {
+      this.modelConfigs.groq = {
+        ...this.modelConfigs.groq,
+        modelId: apiKeys.groqModelId
+      };
+      this.log(`Groq using custom model: ${apiKeys.groqModelId}`);
+    }
   }
 
   private log(message: string): void {
@@ -94,7 +124,7 @@ export class SOTAContentGenerationEngine {
     }
     generationCache.recordMiss();
 
-    const config = MODEL_CONFIGS[model];
+    const config = this.modelConfigs[model];
     const finalMaxTokens = maxTokens || config.maxTokens;
 
     let content = '';
@@ -151,7 +181,7 @@ export class SOTAContentGenerationEngine {
     temperature: number = 0.7,
     maxTokens: number = 8192
   ): Promise<string> {
-    const url = `${MODEL_CONFIGS.gemini.endpoint}/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const url = `${this.modelConfigs.gemini.endpoint}/gemini-2.0-flash:generateContent?key=${apiKey}`;
     
     const contents = [];
     if (systemPrompt) {
@@ -193,14 +223,14 @@ export class SOTAContentGenerationEngine {
     }
     messages.push({ role: 'user', content: prompt });
 
-    const response = await fetch(MODEL_CONFIGS.openai.endpoint, {
+    const response = await fetch(this.modelConfigs.openai.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: MODEL_CONFIGS.openai.modelId,
+        model: this.modelConfigs.openai.modelId,
         messages,
         temperature,
         max_tokens: maxTokens
@@ -225,7 +255,7 @@ export class SOTAContentGenerationEngine {
     temperature: number = 0.7,
     maxTokens: number = 4096
   ): Promise<{ content: string; tokens: number }> {
-    const response = await fetch(MODEL_CONFIGS.anthropic.endpoint, {
+    const response = await fetch(this.modelConfigs.anthropic.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -233,7 +263,7 @@ export class SOTAContentGenerationEngine {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: MODEL_CONFIGS.anthropic.modelId,
+        model: this.modelConfigs.anthropic.modelId,
         max_tokens: maxTokens,
         system: systemPrompt,
         messages: [{ role: 'user', content: prompt }],
@@ -365,7 +395,7 @@ export class SOTAContentGenerationEngine {
     
     const scores: Record<AIModel, number> = {} as Record<AIModel, number>;
     successfulResults.forEach(r => {
-      scores[r.model] = MODEL_CONFIGS[r.model].weight;
+      scores[r.model] = this.modelConfigs[r.model].weight;
     });
 
     return {

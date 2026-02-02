@@ -1,5 +1,6 @@
 // ============================================================
-// SCHEMA GENERATOR - Schema.org Structured Data Automation
+// SCHEMA GENERATOR - Enhanced Schema.org Structured Data Automation
+// Supports: Article, FAQ, HowTo, Speakable, Organization, BreadcrumbList, Product, Review
 // ============================================================
 
 import type { SchemaMarkup, SchemaEntity, EEATProfile, GeneratedContent } from './types';
@@ -26,6 +27,12 @@ export interface HowToStep {
   name: string;
   text: string;
   imageUrl?: string;
+  url?: string;
+}
+
+export interface SpeakableSection {
+  cssSelector?: string;
+  xpath?: string;
 }
 
 export class SchemaGenerator {
@@ -45,8 +52,11 @@ export class SchemaGenerator {
     // Add Organization
     graph.push(this.generateOrganizationSchema());
 
-    // Add WebSite
+    // Add WebSite with SearchAction
     graph.push(this.generateWebSiteSchema());
+
+    // Add WebPage
+    graph.push(this.generateWebPageSchema(url, content.title, content.metaDescription));
 
     // Add Article
     graph.push(this.generateArticleSchema({
@@ -63,7 +73,7 @@ export class SchemaGenerator {
     // Add BreadcrumbList
     graph.push(this.generateBreadcrumbSchema(url, content.title));
 
-    // Extract and add FAQ if present
+    // Extract and add FAQ if present (with enhanced extraction)
     const faqs = this.extractFAQsFromContent(content.content);
     if (faqs.length > 0) {
       graph.push(this.generateFAQSchema(faqs));
@@ -72,11 +82,23 @@ export class SchemaGenerator {
     // Extract and add HowTo if present
     const steps = this.extractHowToSteps(content.content);
     if (steps.length > 0) {
-      graph.push(this.generateHowToSchema(content.title, steps));
+      graph.push(this.generateHowToSchema(content.title, steps, url));
     }
 
-    // Add Author
-    graph.push(this.generateAuthorSchema(content.eeat.author));
+    // Add Speakable schema for voice search optimization
+    const speakableSections = this.extractSpeakableSections(content.content);
+    if (speakableSections.length > 0) {
+      graph.push(this.generateSpeakableSchema(url, speakableSections));
+    }
+
+    // Add Author with enhanced details
+    graph.push(this.generateAuthorSchema(content.eeat.author, url));
+
+    // Add ItemList for any list content
+    const listItems = this.extractListItems(content.content);
+    if (listItems.length >= 3) {
+      graph.push(this.generateItemListSchema(content.title, listItems, url));
+    }
 
     return {
       '@context': 'https://schema.org',
@@ -93,9 +115,13 @@ export class SchemaGenerator {
       ...(this.logoUrl && {
         'logo': {
           '@type': 'ImageObject',
-          'url': this.logoUrl
+          '@id': `${this.organizationUrl}/#logo`,
+          'url': this.logoUrl,
+          'contentUrl': this.logoUrl,
+          'caption': this.organizationName
         }
-      })
+      }),
+      'sameAs': [] // Can be populated with social profiles
     };
   }
 
@@ -107,11 +133,40 @@ export class SchemaGenerator {
       'name': this.organizationName,
       'publisher': {
         '@id': `${this.organizationUrl}/#organization`
+      },
+      'potentialAction': {
+        '@type': 'SearchAction',
+        'target': {
+          '@type': 'EntryPoint',
+          'urlTemplate': `${this.organizationUrl}/?s={search_term_string}`
+        },
+        'query-input': 'required name=search_term_string'
+      }
+    };
+  }
+
+  generateWebPageSchema(url: string, title: string, description: string): SchemaEntity {
+    return {
+      '@type': 'WebPage',
+      '@id': `${url}/#webpage`,
+      'url': url,
+      'name': title,
+      'description': description,
+      'isPartOf': {
+        '@id': `${this.organizationUrl}/#website`
+      },
+      'about': {
+        '@id': `${url}/#article`
+      },
+      'primaryImageOfPage': {
+        '@id': `${url}/#primaryimage`
       }
     };
   }
 
   generateArticleSchema(params: ArticleSchemaParams): SchemaEntity {
+    const wordCount = this.countWords(params.content);
+    
     return {
       '@type': 'Article',
       '@id': `${params.url}/#article`,
@@ -120,27 +175,31 @@ export class SchemaGenerator {
       'datePublished': params.datePublished.toISOString(),
       'dateModified': (params.dateModified || params.datePublished).toISOString(),
       'author': {
-        '@type': 'Person',
-        'name': params.author.name,
-        ...(params.author.credentials.length > 0 && {
-          'jobTitle': params.author.credentials[0]
-        })
+        '@id': `${this.organizationUrl}/#/schema/person/${this.slugify(params.author.name)}`
       },
       'publisher': {
         '@id': `${this.organizationUrl}/#organization`
       },
+      'isPartOf': {
+        '@id': `${params.url}/#webpage`
+      },
       'mainEntityOfPage': {
-        '@type': 'WebPage',
-        '@id': params.url
+        '@id': `${params.url}/#webpage`
       },
       ...(params.imageUrl && {
         'image': {
           '@type': 'ImageObject',
+          '@id': `${params.url}/#primaryimage`,
           'url': params.imageUrl
         }
       }),
-      'wordCount': this.countWords(params.content),
-      'articleBody': this.stripHtml(params.content).slice(0, 500)
+      'wordCount': wordCount,
+      'articleSection': 'Blog',
+      'inLanguage': 'en-US',
+      'copyrightYear': new Date().getFullYear(),
+      'copyrightHolder': {
+        '@id': `${this.organizationUrl}/#organization`
+      }
     };
   }
 
@@ -158,22 +217,45 @@ export class SchemaGenerator {
     };
   }
 
-  generateHowToSchema(title: string, steps: HowToStep[]): SchemaEntity {
+  generateHowToSchema(title: string, steps: HowToStep[], url?: string): SchemaEntity {
+    const totalTime = steps.length * 5; // Estimate 5 minutes per step
+    
     return {
       '@type': 'HowTo',
       'name': title,
+      'description': `Learn how to ${title.toLowerCase()} with this step-by-step guide.`,
+      'totalTime': `PT${totalTime}M`,
+      'estimatedCost': {
+        '@type': 'MonetaryAmount',
+        'currency': 'USD',
+        'value': '0'
+      },
       'step': steps.map((step, index) => ({
         '@type': 'HowToStep',
         'position': index + 1,
         'name': step.name,
         'text': step.text,
+        ...(step.url && { 'url': step.url }),
         ...(step.imageUrl && {
           'image': {
             '@type': 'ImageObject',
             'url': step.imageUrl
           }
         })
-      }))
+      })),
+      ...(url && { 'mainEntityOfPage': url })
+    };
+  }
+
+  generateSpeakableSchema(url: string, sections: SpeakableSection[]): SchemaEntity {
+    return {
+      '@type': 'WebPage',
+      '@id': `${url}/#speakable`,
+      'speakable': {
+        '@type': 'SpeakableSpecification',
+        'cssSelector': sections.map(s => s.cssSelector).filter(Boolean),
+        'xpath': sections.map(s => s.xpath).filter(Boolean)
+      }
     };
   }
 
@@ -195,34 +277,62 @@ export class SchemaGenerator {
       items.push({
         '@type': 'ListItem',
         'position': index + 2,
-        'name': index === urlParts.length - 1 ? title : part.replace(/-/g, ' '),
+        'name': index === urlParts.length - 1 ? title : this.unslugify(part),
         'item': currentPath
       });
     });
 
     return {
       '@type': 'BreadcrumbList',
+      '@id': `${url}/#breadcrumb`,
       'itemListElement': items
     };
   }
 
-  generateAuthorSchema(author: EEATProfile['author']): SchemaEntity {
+  generateAuthorSchema(author: EEATProfile['author'], pageUrl?: string): SchemaEntity {
     return {
       '@type': 'Person',
+      '@id': `${this.organizationUrl}/#/schema/person/${this.slugify(author.name)}`,
       'name': author.name,
       ...(author.credentials.length > 0 && {
-        'jobTitle': author.credentials[0]
+        'jobTitle': author.credentials[0],
+        'hasCredential': author.credentials.map(c => ({
+          '@type': 'EducationalOccupationalCredential',
+          'credentialCategory': c
+        }))
       }),
       ...(author.expertiseAreas.length > 0 && {
         'knowsAbout': author.expertiseAreas
       }),
       ...(author.socialProfiles.length > 0 && {
         'sameAs': author.socialProfiles.map(p => p.url)
+      }),
+      'worksFor': {
+        '@id': `${this.organizationUrl}/#organization`
+      },
+      ...(pageUrl && {
+        'mainEntityOfPage': {
+          '@id': `${pageUrl}/#webpage`
+        }
       })
     };
   }
 
-  generateReviewSchema(reviewerName: string, rating: number, reviewBody: string): SchemaEntity {
+  generateItemListSchema(title: string, items: string[], url: string): SchemaEntity {
+    return {
+      '@type': 'ItemList',
+      'name': title,
+      'numberOfItems': items.length,
+      'itemListElement': items.map((item, index) => ({
+        '@type': 'ListItem',
+        'position': index + 1,
+        'name': item
+      })),
+      'mainEntityOfPage': url
+    };
+  }
+
+  generateReviewSchema(reviewerName: string, rating: number, reviewBody: string, itemReviewed?: string): SchemaEntity {
     return {
       '@type': 'Review',
       'author': {
@@ -232,9 +342,16 @@ export class SchemaGenerator {
       'reviewRating': {
         '@type': 'Rating',
         'ratingValue': rating,
-        'bestRating': 5
+        'bestRating': 5,
+        'worstRating': 1
       },
-      'reviewBody': reviewBody
+      'reviewBody': reviewBody,
+      ...(itemReviewed && {
+        'itemReviewed': {
+          '@type': 'Thing',
+          'name': itemReviewed
+        }
+      })
     };
   }
 
@@ -243,7 +360,9 @@ export class SchemaGenerator {
     description: string,
     imageUrl: string,
     price?: number,
-    currency?: string
+    currency?: string,
+    rating?: number,
+    reviewCount?: number
   ): SchemaEntity {
     return {
       '@type': 'Product',
@@ -254,29 +373,80 @@ export class SchemaGenerator {
         'offers': {
           '@type': 'Offer',
           'price': price,
-          'priceCurrency': currency
+          'priceCurrency': currency,
+          'availability': 'https://schema.org/InStock'
+        }
+      }),
+      ...(rating !== undefined && {
+        'aggregateRating': {
+          '@type': 'AggregateRating',
+          'ratingValue': rating,
+          'bestRating': 5,
+          'reviewCount': reviewCount || 1
         }
       })
+    };
+  }
+
+  generateVideoSchema(
+    name: string,
+    description: string,
+    thumbnailUrl: string,
+    uploadDate: Date,
+    duration: string,
+    contentUrl?: string,
+    embedUrl?: string
+  ): SchemaEntity {
+    return {
+      '@type': 'VideoObject',
+      'name': name,
+      'description': description,
+      'thumbnailUrl': thumbnailUrl,
+      'uploadDate': uploadDate.toISOString(),
+      'duration': duration,
+      ...(contentUrl && { 'contentUrl': contentUrl }),
+      ...(embedUrl && { 'embedUrl': embedUrl }),
+      'publisher': {
+        '@id': `${this.organizationUrl}/#organization`
+      }
     };
   }
 
   private extractFAQsFromContent(content: string): FAQItem[] {
     const faqs: FAQItem[] = [];
     
-    // Look for FAQ patterns
+    // Enhanced FAQ extraction patterns
     const faqPatterns = [
-      /<h[23][^>]*>\s*(?:Q:|Question:?)?\s*(.+?)<\/h[23]>\s*<p>(.+?)<\/p>/gi,
-      /<strong>\s*(?:Q:|Question:?)?\s*(.+?)<\/strong>\s*<p>(.+?)<\/p>/gi
+      // Pattern 1: H3 questions followed by paragraphs
+      /<h3[^>]*>\s*(?:Q\d*[:.])?\s*(.+?)<\/h3>\s*(?:<p[^>]*>(.+?)<\/p>)+/gi,
+      // Pattern 2: H2/H3 with question marks
+      /<h[23][^>]*>([^<]+\?)<\/h[23]>\s*<p>(.+?)<\/p>/gi,
+      // Pattern 3: Strong/bold questions
+      /<(?:strong|b)[^>]*>\s*(?:Q[:.])?\s*([^<]+\?)\s*<\/(?:strong|b)>\s*(?:<br\s*\/?>)?\s*(?:A[:.])?\s*(.+?)(?=<(?:strong|b)|<\/)/gi,
+      // Pattern 4: Definition list style
+      /<dt[^>]*>(.+?)<\/dt>\s*<dd[^>]*>(.+?)<\/dd>/gi,
+      // Pattern 5: FAQ section specific
+      /(?:class="[^"]*faq[^"]*")[^>]*>.*?<h[34][^>]*>(.+?)<\/h[34]>\s*<(?:p|div)[^>]*>(.+?)<\/(?:p|div)>/gi,
     ];
 
     faqPatterns.forEach(pattern => {
       let match;
-      while ((match = pattern.exec(content)) !== null) {
+      const regex = new RegExp(pattern.source, pattern.flags);
+      while ((match = regex.exec(content)) !== null) {
         if (match[1] && match[2]) {
-          faqs.push({
-            question: this.stripHtml(match[1]).trim(),
-            answer: this.stripHtml(match[2]).trim()
-          });
+          const question = this.stripHtml(match[1]).trim();
+          const answer = this.stripHtml(match[2]).trim();
+          
+          // Only add if it looks like a real Q&A
+          if (question.length > 10 && answer.length > 20 && 
+              (question.includes('?') || question.toLowerCase().startsWith('how') || 
+               question.toLowerCase().startsWith('what') || question.toLowerCase().startsWith('why') ||
+               question.toLowerCase().startsWith('when') || question.toLowerCase().startsWith('where'))) {
+            // Avoid duplicates
+            if (!faqs.some(f => f.question.toLowerCase() === question.toLowerCase())) {
+              faqs.push({ question, answer });
+            }
+          }
         }
       }
     });
@@ -287,23 +457,93 @@ export class SchemaGenerator {
   private extractHowToSteps(content: string): HowToStep[] {
     const steps: HowToStep[] = [];
     
-    // Look for numbered steps
-    const stepPattern = /<li[^>]*>\s*(?:<strong>)?(?:Step\s*\d+[:.])?\s*(.+?)(?:<\/strong>)?(?:<\/li>|<br)/gi;
+    // Enhanced step extraction
+    const stepPatterns = [
+      // Ordered list items
+      /<ol[^>]*>.*?<li[^>]*>(.+?)<\/li>/gis,
+      // Numbered steps
+      /<(?:h[234]|p|div)[^>]*>\s*(?:Step\s*)?(\d+)[.:)\s]+(.+?)<\/(?:h[234]|p|div)>/gi,
+      // List items with step keywords
+      /<li[^>]*>\s*(?:<strong[^>]*>)?(?:Step\s*\d*[:.])?\s*(.+?)(?:<\/strong[^>]*>)?<\/li>/gi,
+    ];
     
-    let match;
-    while ((match = stepPattern.exec(content)) !== null) {
-      if (match[1]) {
-        const text = this.stripHtml(match[1]).trim();
+    // Try ordered list first
+    const olMatch = content.match(/<ol[^>]*>([\s\S]*?)<\/ol>/i);
+    if (olMatch) {
+      const listContent = olMatch[1];
+      const liPattern = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+      let liMatch;
+      while ((liMatch = liPattern.exec(listContent)) !== null) {
+        const text = this.stripHtml(liMatch[1]).trim();
         if (text.length > 10) {
           steps.push({
-            name: text.slice(0, 50) + (text.length > 50 ? '...' : ''),
+            name: text.slice(0, 60) + (text.length > 60 ? '...' : ''),
             text: text
           });
         }
       }
     }
 
+    // If no ordered list, try other patterns
+    if (steps.length === 0) {
+      stepPatterns.slice(1).forEach(pattern => {
+        let match;
+        while ((match = pattern.exec(content)) !== null) {
+          const text = this.stripHtml(match[2] || match[1]).trim();
+          if (text.length > 10) {
+            steps.push({
+              name: text.slice(0, 60) + (text.length > 60 ? '...' : ''),
+              text: text
+            });
+          }
+        }
+      });
+    }
+
     return steps.slice(0, 10);
+  }
+
+  private extractSpeakableSections(content: string): SpeakableSection[] {
+    const sections: SpeakableSection[] = [];
+    
+    // Target key takeaways and summaries for voice
+    if (content.includes('key-takeaways') || content.includes('Key Takeaways')) {
+      sections.push({ cssSelector: '.key-takeaways, [class*="takeaway"]' });
+    }
+    
+    // Target article introduction (first paragraph after h1)
+    sections.push({ cssSelector: 'article > p:first-of-type' });
+    
+    // Target FAQ answers
+    if (content.includes('faq') || content.includes('FAQ')) {
+      sections.push({ cssSelector: '.faq-answer, [class*="faq"] p' });
+    }
+    
+    // Target any summary sections
+    sections.push({ cssSelector: '.summary, .conclusion, [class*="summary"]' });
+    
+    return sections;
+  }
+
+  private extractListItems(content: string): string[] {
+    const items: string[] = [];
+    
+    // Extract from unordered lists
+    const ulPattern = /<ul[^>]*>([\s\S]*?)<\/ul>/gi;
+    let ulMatch;
+    while ((ulMatch = ulPattern.exec(content)) !== null) {
+      const listContent = ulMatch[1];
+      const liPattern = /<li[^>]*>([\s\S]*?)<\/li>/gi;
+      let liMatch;
+      while ((liMatch = liPattern.exec(listContent)) !== null) {
+        const text = this.stripHtml(liMatch[1]).trim();
+        if (text.length > 5 && text.length < 200) {
+          items.push(text);
+        }
+      }
+    }
+
+    return items.slice(0, 10);
   }
 
   private stripHtml(html: string): string {
@@ -314,8 +554,37 @@ export class SchemaGenerator {
     return this.stripHtml(content).split(/\s+/).filter(w => w.length > 0).length;
   }
 
+  private slugify(text: string): string {
+    return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  }
+
+  private unslugify(slug: string): string {
+    return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
   toScriptTag(schema: SchemaMarkup): string {
     return `<script type="application/ld+json">${JSON.stringify(schema, null, 2)}</script>`;
+  }
+
+  // Validate schema against Google's requirements
+  validateSchema(schema: SchemaMarkup): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!schema['@context']) {
+      errors.push('Missing @context');
+    }
+
+    if (!schema['@graph'] || !Array.isArray(schema['@graph'])) {
+      errors.push('Missing @graph array');
+    } else {
+      schema['@graph'].forEach((entity, index) => {
+        if (!entity['@type']) {
+          errors.push(`Entity ${index} missing @type`);
+        }
+      });
+    }
+
+    return { valid: errors.length === 0, errors };
   }
 }
 

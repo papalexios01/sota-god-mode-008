@@ -59,6 +59,9 @@ export function ReviewExport() {
         openrouterApiKey: config.openrouterApiKey,
         groqApiKey: config.groqApiKey,
         serperApiKey: config.serperApiKey,
+        // Pass custom model IDs for OpenRouter and Groq
+        openrouterModelId: config.openrouterModelId,
+        groqModelId: config.groqModelId,
       },
       organizationName: config.organizationName || 'Content Hub',
       organizationUrl: config.wpUrl || 'https://example.com',

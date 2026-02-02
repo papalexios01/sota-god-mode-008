@@ -21,6 +21,12 @@ export interface PriorityUrl {
   addedAt: Date;
 }
 
+export interface NeuronWriterProject {
+  id: string;
+  name: string;
+  queries_count?: number;
+}
+
 export interface AppConfig {
   // API Keys
   geminiApiKey: string;
@@ -34,6 +40,10 @@ export interface AppConfig {
   primaryModel: 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'groq';
   enableGoogleGrounding: boolean;
   
+  // OpenRouter & Groq Custom Models
+  openrouterModelId: string;
+  groqModelId: string;
+  
   // WordPress Config
   wpUrl: string;
   wpUsername: string;
@@ -45,6 +55,8 @@ export interface AppConfig {
   // NeuronWriter
   enableNeuronWriter: boolean;
   neuronWriterApiKey: string;
+  neuronWriterProjectId: string;
+  neuronWriterProjectName: string;
   
   // Geo-Targeting
   enableGeoTargeting: boolean;
@@ -60,6 +72,14 @@ interface OptimizerStore {
   // Configuration
   config: AppConfig;
   setConfig: (config: Partial<AppConfig>) => void;
+  
+  // NeuronWriter Projects (loaded dynamically)
+  neuronWriterProjects: NeuronWriterProject[];
+  setNeuronWriterProjects: (projects: NeuronWriterProject[]) => void;
+  neuronWriterLoading: boolean;
+  setNeuronWriterLoading: (loading: boolean) => void;
+  neuronWriterError: string | null;
+  setNeuronWriterError: (error: string | null) => void;
   
   // Content Queue
   contentItems: ContentItem[];
@@ -108,6 +128,8 @@ export const useOptimizerStore = create<OptimizerStore>()(
         groqApiKey: '',
         primaryModel: 'gemini',
         enableGoogleGrounding: false,
+        openrouterModelId: 'anthropic/claude-3.5-sonnet',
+        groqModelId: 'llama-3.3-70b-versatile',
         wpUrl: '',
         wpUsername: '',
         wpAppPassword: '',
@@ -116,6 +138,8 @@ export const useOptimizerStore = create<OptimizerStore>()(
         authorName: '',
         enableNeuronWriter: false,
         neuronWriterApiKey: '',
+        neuronWriterProjectId: '',
+        neuronWriterProjectName: '',
         enableGeoTargeting: false,
         targetCountry: 'US',
         targetLanguage: 'en',
@@ -123,6 +147,14 @@ export const useOptimizerStore = create<OptimizerStore>()(
       setConfig: (updates) => set((state) => ({ 
         config: { ...state.config, ...updates } 
       })),
+      
+      // NeuronWriter Projects
+      neuronWriterProjects: [],
+      setNeuronWriterProjects: (projects) => set({ neuronWriterProjects: projects }),
+      neuronWriterLoading: false,
+      setNeuronWriterLoading: (loading) => set({ neuronWriterLoading: loading }),
+      neuronWriterError: null,
+      setNeuronWriterError: (error) => set({ neuronWriterError: error }),
       
       // Content Queue
       contentItems: [],

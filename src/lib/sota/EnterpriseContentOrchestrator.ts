@@ -17,17 +17,18 @@ import type {
   ContentPlan
 } from './types';
 
-import { SOTAContentGenerationEngine, createSOTAEngine } from './SOTAContentGenerationEngine';
+import { SOTAContentGenerationEngine, createSOTAEngine, type ExtendedAPIKeys } from './SOTAContentGenerationEngine';
 import { SERPAnalyzer, createSERPAnalyzer } from './SERPAnalyzer';
 import { YouTubeService, createYouTubeService } from './YouTubeService';
 import { ReferenceService, createReferenceService } from './ReferenceService';
 import { SOTAInternalLinkEngine, createInternalLinkEngine } from './SOTAInternalLinkEngine';
 import { SchemaGenerator, createSchemaGenerator } from './SchemaGenerator';
 import { calculateQualityScore, analyzeContent, removeAIPhrases } from './QualityValidator';
+import { EEATValidator, createEEATValidator } from './EEATValidator';
 import { generationCache } from './cache';
 
 interface OrchestratorConfig {
-  apiKeys: APIKeys;
+  apiKeys: ExtendedAPIKeys;
   organizationName: string;
   organizationUrl: string;
   logoUrl?: string;
@@ -48,6 +49,7 @@ interface GenerationOptions {
   includeReferences?: boolean;
   injectLinks?: boolean;
   generateSchema?: boolean;
+  validateEEAT?: boolean;
   onProgress?: (message: string) => void;
 }
 
@@ -58,6 +60,7 @@ export class EnterpriseContentOrchestrator {
   private referenceService: ReferenceService;
   private linkEngine: SOTAInternalLinkEngine;
   private schemaGenerator: SchemaGenerator;
+  private eeatValidator: EEATValidator;
   private config: OrchestratorConfig;
   
   private onProgress?: (message: string) => void;
@@ -70,6 +73,7 @@ export class EnterpriseContentOrchestrator {
     this.youtubeService = createYouTubeService(config.apiKeys.serperApiKey || '');
     this.referenceService = createReferenceService(config.apiKeys.serperApiKey || '');
     this.linkEngine = createInternalLinkEngine(config.sitePages);
+    this.eeatValidator = createEEATValidator();
     this.schemaGenerator = createSchemaGenerator(
       config.organizationName,
       config.organizationUrl,
@@ -129,13 +133,28 @@ export class EnterpriseContentOrchestrator {
       this.log(`Injected ${linkOpportunities.length} internal links`);
     }
 
-    // Phase 4: Validation
-    this.log('Phase 4: Quality Validation...');
+    // Phase 4: Validation (parallel quality + E-E-A-T)
+    this.log('Phase 4: Quality & E-E-A-T Validation...');
     const metrics = analyzeContent(enhancedContent);
     const internalLinks = this.linkEngine.generateLinkOpportunities(enhancedContent);
-    const qualityScore = calculateQualityScore(enhancedContent, options.keyword, internalLinks.map(l => l.targetUrl));
+    
+    // Run quality and E-E-A-T validation in parallel
+    const [qualityScore, eeatScore] = await Promise.all([
+      Promise.resolve(calculateQualityScore(enhancedContent, options.keyword, internalLinks.map(l => l.targetUrl))),
+      Promise.resolve(this.eeatValidator.validateContent(enhancedContent, {
+        name: this.config.authorName,
+        credentials: this.config.authorCredentials
+      }))
+    ]);
 
     this.log(`Quality Score: ${qualityScore.overall}%`);
+    this.log(`E-E-A-T Score: ${eeatScore.overall}% (E:${eeatScore.experience} X:${eeatScore.expertise} A:${eeatScore.authoritativeness} T:${eeatScore.trustworthiness})`);
+    
+    // If E-E-A-T score is low and validation is enabled, log recommendations
+    if (options.validateEEAT !== false && eeatScore.overall < 70) {
+      const enhancements = this.eeatValidator.generateEEATEnhancements(eeatScore);
+      this.log(`E-E-A-T improvements needed: ${enhancements.slice(0, 3).join(', ')}`);
+    }
 
     // Phase 5: Schema & Metadata
     const eeat = this.buildEEATProfile(references);
