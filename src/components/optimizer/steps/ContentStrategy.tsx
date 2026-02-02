@@ -3,9 +3,11 @@ import { useOptimizerStore } from "@/lib/store";
 import { 
   BookOpen, FileText, Target, RefreshCw, FolderOpen, Image,
   Zap, Plus, Upload, Link, Trash2, AlertCircle, ArrowRight,
-  BarChart3, Search, Sparkles
+  BarChart3, Search, Sparkles, Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { supabase, isSupabaseConfigured } from "@/integrations/supabase/client";
 
 const tabs = [
   { id: "bulk", label: "📚 Bulk Planner", icon: BookOpen },
@@ -24,7 +26,7 @@ export function ContentStrategy() {
     priorityUrls, addPriorityUrl, removePriorityUrl,
     excludedUrls, setExcludedUrls,
     excludedCategories, setExcludedCategories,
-    sitemapUrls,
+    sitemapUrls, setSitemapUrls,
     addContentItem,
     setCurrentStep
   } = useOptimizerStore();
@@ -38,6 +40,8 @@ export function ContentStrategy() {
   const [imagePrompt, setImagePrompt] = useState("");
   const [imageCount, setImageCount] = useState(1);
   const [aspectRatio, setAspectRatio] = useState("1:1");
+  const [isCrawling, setIsCrawling] = useState(false);
+  const [crawledUrls, setCrawledUrls] = useState<string[]>([]);
 
   const handleGenerateContentPlan = () => {
     if (!broadTopic.trim()) return;
@@ -80,6 +84,80 @@ export function ContentStrategy() {
     if (!newPriorityUrl.trim()) return;
     addPriorityUrl(newPriorityUrl.trim(), newPriority);
     setNewPriorityUrl("");
+  };
+
+  const handleCrawlSitemap = async () => {
+    if (!sitemapUrl.trim()) return;
+
+    setIsCrawling(true);
+    setCrawledUrls([]);
+
+    try {
+      let xmlText: string;
+
+      // Try Supabase Edge Function first
+      if (isSupabaseConfigured()) {
+        console.log("[Sitemap] Using Supabase fetch-sitemap function");
+        const { data, error } = await supabase.functions.invoke("fetch-sitemap", {
+          body: { url: sitemapUrl.trim() },
+        });
+
+        if (error) {
+          throw new Error(error.message || "Failed to fetch sitemap via Supabase");
+        }
+
+        xmlText = data?.content || data;
+      } else {
+        // Try Cloudflare proxy
+        console.log("[Sitemap] Trying Cloudflare proxy");
+        const response = await fetch("/api/fetch-sitemap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: sitemapUrl.trim() }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Proxy returned ${response.status}`);
+        }
+
+        const data = await response.json();
+        xmlText = data?.content || await response.text();
+      }
+
+      // Parse XML to extract URLs
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+      
+      // Check for parsing errors
+      const parseError = xmlDoc.querySelector("parsererror");
+      if (parseError) {
+        throw new Error("Invalid XML format in sitemap");
+      }
+
+      // Extract all <loc> elements (works for both sitemap index and regular sitemaps)
+      const locElements = xmlDoc.querySelectorAll("loc");
+      const urls: string[] = [];
+      
+      locElements.forEach((loc) => {
+        const url = loc.textContent?.trim();
+        if (url) {
+          urls.push(url);
+        }
+      });
+
+      if (urls.length === 0) {
+        throw new Error("No URLs found in sitemap");
+      }
+
+      setCrawledUrls(urls);
+      setSitemapUrls(urls);
+      toast.success(`Found ${urls.length} URLs in sitemap!`);
+    } catch (error) {
+      console.error("[Sitemap] Crawl error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to crawl sitemap");
+    } finally {
+      setIsCrawling(false);
+    }
   };
 
   return (
@@ -403,12 +481,45 @@ export function ContentStrategy() {
               />
             </div>
             <button
-              disabled={!sitemapUrl.trim()}
+              onClick={handleCrawlSitemap}
+              disabled={!sitemapUrl.trim() || isCrawling}
               className="w-full px-6 py-3 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              <Search className="w-5 h-5" />
-              🔍 Crawl Sitemap
+              {isCrawling ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Crawling...
+                </>
+              ) : (
+                <>
+                  <Search className="w-5 h-5" />
+                  🔍 Crawl Sitemap
+                </>
+              )}
             </button>
+
+            {/* Show crawled URLs */}
+            {crawledUrls.length > 0 && (
+              <div className="mt-4 p-4 bg-muted/50 rounded-xl">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-medium text-foreground">
+                    ✅ Found {crawledUrls.length} URLs
+                  </h4>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1">
+                  {crawledUrls.slice(0, 50).map((url, idx) => (
+                    <div key={idx} className="text-sm text-muted-foreground truncate">
+                      {url}
+                    </div>
+                  ))}
+                  {crawledUrls.length > 50 && (
+                    <div className="text-sm text-muted-foreground italic">
+                      ... and {crawledUrls.length - 50} more
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
