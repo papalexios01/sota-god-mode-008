@@ -2,10 +2,14 @@ import { useState } from "react";
 import { useOptimizerStore } from "@/lib/store";
 import { 
   FileText, Check, X, AlertCircle, Trash2, 
-  Sparkles, ArrowUpDown, Eye, MoreHorizontal,
+  Sparkles, ArrowUpDown, Eye, Brain,
   CheckCircle, Clock, XCircle, Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createOrchestrator, globalPerformanceTracker, type GeneratedContent } from "@/lib/sota";
+import { ContentPreviewModal } from "../ContentPreviewModal";
+import { GenerationProgressModal } from "../GenerationProgressModal";
+import { ContentIntelligenceDashboard } from "../ContentIntelligenceDashboard";
 
 export function ReviewExport() {
   const { 
@@ -18,6 +22,12 @@ export function ReviewExport() {
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [sortField, setSortField] = useState<'title' | 'type' | 'status'>('title');
   const [sortAsc, setSortAsc] = useState(true);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [previewContent, setPreviewContent] = useState<GeneratedContent | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [currentPhase, setCurrentPhase] = useState('');
+  const [generationError, setGenerationError] = useState<string | undefined>();
 
   const toggleSelect = (id: string) => {
     setSelectedItems(prev => 
@@ -35,16 +45,70 @@ export function ReviewExport() {
 
   const handleGenerate = async () => {
     const toGenerate = contentItems.filter(i => selectedItems.includes(i.id) && i.status === 'pending');
+    if (toGenerate.length === 0) return;
+
+    setIsGenerating(true);
+    setGenerationProgress(0);
+    setGenerationError(undefined);
+
+    const orchestrator = createOrchestrator({
+      apiKeys: {
+        geminiApiKey: config.geminiApiKey,
+        openaiApiKey: config.openaiApiKey,
+        anthropicApiKey: config.anthropicApiKey,
+        openrouterApiKey: config.openrouterApiKey,
+        groqApiKey: config.groqApiKey,
+        serperApiKey: config.serperApiKey,
+      },
+      organizationName: config.organizationName || 'Content Hub',
+      organizationUrl: config.wpUrl || 'https://example.com',
+      logoUrl: config.logoUrl,
+      authorName: config.authorName || 'Content Team',
+      sitePages: sitemapUrls.map(url => ({ url, title: url.split('/').pop() || '' })),
+      primaryModel: config.primaryModel,
+      useConsensus: false,
+    });
+
+    let completed = 0;
     for (const item of toGenerate) {
       updateContentItem(item.id, { status: 'generating' });
-      // Simulate generation
-      await new Promise(r => setTimeout(r, 2000));
-      updateContentItem(item.id, { 
-        status: 'completed', 
-        content: `Generated content for ${item.title}...`,
-        wordCount: Math.floor(Math.random() * 2000) + 1500
-      });
+      setCurrentPhase(`Generating: ${item.title}`);
+      
+      try {
+        const result = await orchestrator.generateContent({
+          keyword: item.primaryKeyword,
+          title: item.title,
+          onProgress: (msg) => setCurrentPhase(msg),
+        });
+
+        updateContentItem(item.id, { 
+          status: 'completed', 
+          content: result.content,
+          wordCount: result.metrics.wordCount,
+        });
+
+        globalPerformanceTracker.recordMetrics({
+          timestamp: Date.now(),
+          contentQualityScore: result.qualityScore.overall,
+          aeoScore: result.qualityScore.seo,
+          internalLinkDensity: result.internalLinks.length * 10,
+          semanticRichness: result.qualityScore.eeat,
+          processingSpeed: Date.now(),
+          wordCount: result.metrics.wordCount,
+          modelUsed: result.model,
+          cacheHit: false,
+          keyword: item.primaryKeyword,
+        });
+      } catch (error) {
+        updateContentItem(item.id, { status: 'error', error: String(error) });
+        setGenerationError(String(error));
+      }
+
+      completed++;
+      setGenerationProgress(Math.round((completed / toGenerate.length) * 100));
     }
+
+    setIsGenerating(false);
     setSelectedItems([]);
   };
 
@@ -114,14 +178,28 @@ export function ReviewExport() {
 
       {/* Action Bar */}
       <div className="flex items-center justify-between">
-        <button
-          onClick={handleGenerate}
-          disabled={selectedItems.length === 0 || !hasAiProvider}
-          className="px-6 py-2.5 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
-        >
-          <Sparkles className="w-5 h-5" />
-          ✨ Generate Selected ({selectedItems.length})
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={handleGenerate}
+            disabled={selectedItems.length === 0 || !hasAiProvider || isGenerating}
+            className="px-6 py-2.5 bg-primary text-primary-foreground font-semibold rounded-xl hover:bg-primary/90 disabled:opacity-50 flex items-center gap-2"
+          >
+            {isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}
+            {isGenerating ? 'Generating...' : `✨ Generate Selected (${selectedItems.length})`}
+          </button>
+          <button
+            onClick={() => setShowAnalytics(!showAnalytics)}
+            className={cn(
+              "px-4 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-colors",
+              showAnalytics 
+                ? "bg-primary text-primary-foreground" 
+                : "bg-muted text-foreground hover:bg-muted/80"
+            )}
+          >
+            <Brain className="w-5 h-5" />
+            Analytics
+          </button>
+        </div>
 
         {/* Stats */}
         <div className="flex gap-6 text-sm">
@@ -255,6 +333,30 @@ export function ReviewExport() {
           </tbody>
         </table>
       </div>
+
+      {/* Analytics Dashboard */}
+      {showAnalytics && (
+        <div className="bg-card border border-border rounded-2xl p-6">
+          <ContentIntelligenceDashboard />
+        </div>
+      )}
+
+      {/* Generation Progress Modal */}
+      <GenerationProgressModal
+        isOpen={isGenerating}
+        onClose={() => setIsGenerating(false)}
+        keyword={contentItems.find(i => i.status === 'generating')?.primaryKeyword || ''}
+        steps={[]}
+        progress={generationProgress}
+        currentPhase={currentPhase}
+        error={generationError}
+      />
+
+      {/* Content Preview Modal */}
+      <ContentPreviewModal
+        content={previewContent}
+        onClose={() => setPreviewContent(null)}
+      />
     </div>
   );
 }
