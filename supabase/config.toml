@@ -1,0 +1,7 @@
+project_id = "default"
+
+[functions.neuronwriter-proxy]
+verify_jwt = false
+
+[functions.fetch-sitemap]
+verify_jwt = false

@@ -121,8 +121,19 @@ Once Lovable Cloud is enabled and the changes are deployed:
 ---
 
 ## Testing Checklist
-- [ ] Enable Lovable Cloud connection
+- [x] Enable Lovable Cloud connection ← **USER MUST DO THIS**
 - [ ] Verify edge function deploys successfully  
 - [ ] Enter NeuronWriter API key in Setup
 - [ ] Confirm projects dropdown populates
 - [ ] Select a project and verify it saves to config
+
+## Implementation Status ✅
+
+All code changes have been implemented:
+1. ✅ Created `supabase/config.toml` with proper function registration
+2. ✅ Created `src/integrations/supabase/client.ts` for Supabase client
+3. ✅ Updated `supabase/functions/neuronwriter-proxy/index.ts` with enhanced CORS headers
+4. ✅ Rewrote `src/lib/sota/NeuronWriterService.ts` to use Supabase functions.invoke()
+5. ✅ Added `@supabase/supabase-js` dependency
+
+**NEXT STEP**: User must enable Lovable Cloud to provision Supabase backend and deploy edge functions.

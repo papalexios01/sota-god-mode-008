@@ -1,9 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
+// Enhanced CORS headers for Supabase client compatibility
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey, X-NeuronWriter-Key",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, X-NeuronWriter-Key",
 };
 
 const NEURON_API_BASE = "https://app.neuronwriter.com/neuron-api/0.5/writer";
@@ -24,8 +25,20 @@ async function makeNeuronRequest(
   const cleanApiKey = apiKey.trim();
   const url = `${NEURON_API_BASE}${endpoint}`;
 
+  // Dynamic timeout based on endpoint type
+  let timeoutMs = 45000;
+  if (endpoint === "/list-projects" || endpoint === "/list-queries") {
+    timeoutMs = 20000;
+  } else if (endpoint === "/new-query") {
+    timeoutMs = 60000;
+  } else if (endpoint === "/get-query") {
+    timeoutMs = 30000;
+  }
+
+  console.log(`[NeuronWriter Proxy] ${method} ${endpoint} (timeout: ${timeoutMs}ms)`);
+
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const fetchOptions: RequestInit = {
@@ -86,8 +99,11 @@ async function makeNeuronRequest(
 }
 
 Deno.serve(async (req: Request) => {
+  console.log(`[NeuronWriter Proxy] Incoming ${req.method} request`);
+  
+  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers: corsHeaders });
+    return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
   try {

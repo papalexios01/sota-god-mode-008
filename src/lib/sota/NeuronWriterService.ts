@@ -1,7 +1,9 @@
 // ============================================================
 // NEURONWRITER SERVICE - Enterprise NeuronWriter Integration
-// With intelligent fallback: Proxy -> Direct API
+// Uses Supabase Edge Functions for CORS-free API calls
 // ============================================================
+
+import { supabase, isSupabaseConfigured, getSupabaseUrl } from '@/integrations/supabase/client';
 
 export interface NeuronWriterProject {
   id: string;
@@ -71,84 +73,98 @@ export interface NeuronWriterCompetitor {
   score?: number;
 }
 
-const NEURON_API_BASE = 'https://app.neuronwriter.com/neuron-api/0.5/writer';
-
-// Determine the best proxy URL for NeuronWriter API calls
-function getProxyUrl(): string | null {
-  // Check for Supabase functions first (preferred)
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  if (supabaseUrl) {
-    return `${supabaseUrl}/functions/v1/neuronwriter-proxy`;
-  }
-  
-  // In production with Cloudflare Pages
-  if (typeof window !== 'undefined' && window.location.hostname.includes('lovable.app') === false) {
-    return '/api/neuronwriter';
-  }
-  
-  // No proxy available in preview
-  return null;
-}
-
 export class NeuronWriterService {
   private apiKey: string;
-  private proxyUrl: string | null;
-  private useDirectApi: boolean = false;
 
   constructor(apiKey: string) {
     this.apiKey = apiKey.trim();
-    this.proxyUrl = getProxyUrl();
   }
 
   /**
-   * Make API request - tries proxy first, then direct API
+   * Make API request through Supabase Edge Function (preferred) or fallback methods
    */
   private async makeRequest<T>(
     endpoint: string,
     method: string = 'POST',
     body?: Record<string, unknown>
   ): Promise<{ success: boolean; data?: T; error?: string }> {
-    // If we already know direct API works, use it
-    if (this.useDirectApi || !this.proxyUrl) {
-      return this.makeDirectRequest<T>(endpoint, method, body);
+    // Method 1: Use Supabase client's functions.invoke (preferred)
+    if (supabase && isSupabaseConfigured()) {
+      return this.makeSupabaseRequest<T>(endpoint, method, body);
     }
 
-    // Try proxy first
-    try {
-      const result = await this.makeProxyRequest<T>(endpoint, method, body);
-      if (result.success) {
-        return result;
-      }
-      
-      // If proxy returns 404 or specific errors, try direct API
-      if (result.error?.includes('404') || result.error?.includes('proxy not available')) {
-        console.log('[NeuronWriter] Proxy unavailable, trying direct API...');
-        this.useDirectApi = true;
-        return this.makeDirectRequest<T>(endpoint, method, body);
-      }
-      
-      return result;
-    } catch (error) {
-      console.log('[NeuronWriter] Proxy failed, trying direct API...');
-      this.useDirectApi = true;
-      return this.makeDirectRequest<T>(endpoint, method, body);
+    // Method 2: Direct URL fetch to Supabase function (fallback for production)
+    const supabaseUrl = getSupabaseUrl();
+    if (supabaseUrl) {
+      return this.makeDirectProxyRequest<T>(supabaseUrl, endpoint, method, body);
     }
+
+    // Method 3: Check for Cloudflare Pages function
+    if (typeof window !== 'undefined' && !window.location.hostname.includes('lovable.app')) {
+      return this.makeCloudflareRequest<T>(endpoint, method, body);
+    }
+
+    // No proxy available
+    return { 
+      success: false, 
+      error: 'NeuronWriter proxy not available. Enable Lovable Cloud or deploy to production for NeuronWriter integration.'
+    };
   }
 
   /**
-   * Make request through proxy
+   * Make request via Supabase client's functions.invoke (best method)
    */
-  private async makeProxyRequest<T>(
+  private async makeSupabaseRequest<T>(
     endpoint: string,
     method: string,
     body?: Record<string, unknown>
   ): Promise<{ success: boolean; data?: T; error?: string }> {
-    if (!this.proxyUrl) {
-      return { success: false, error: 'No proxy available' };
-    }
-
     try {
-      const response = await fetch(this.proxyUrl, {
+      console.log(`[NeuronWriter] Invoking Supabase function: ${endpoint}`);
+      
+      const { data, error } = await supabase!.functions.invoke('neuronwriter-proxy', {
+        body: {
+          endpoint,
+          method,
+          apiKey: this.apiKey,
+          body,
+        },
+      });
+
+      if (error) {
+        console.error('[NeuronWriter] Supabase function error:', error);
+        return { success: false, error: error.message };
+      }
+
+      if (!data?.success) {
+        return { success: false, error: data?.error || 'Unknown proxy error' };
+      }
+
+      return { success: true, data: data.data as T };
+    } catch (error) {
+      console.error('[NeuronWriter] Supabase invoke error:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Supabase function error' 
+      };
+    }
+  }
+
+  /**
+   * Make direct HTTP request to Supabase function URL (fallback)
+   */
+  private async makeDirectProxyRequest<T>(
+    supabaseUrl: string,
+    endpoint: string,
+    method: string,
+    body?: Record<string, unknown>
+  ): Promise<{ success: boolean; data?: T; error?: string }> {
+    const proxyUrl = `${supabaseUrl}/functions/v1/neuronwriter-proxy`;
+    
+    try {
+      console.log(`[NeuronWriter] Direct proxy call: ${endpoint}`);
+      
+      const response = await fetch(proxyUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -192,68 +208,46 @@ export class NeuronWriterService {
   }
 
   /**
-   * Make direct API request to NeuronWriter (may fail due to CORS in browser)
+   * Make request via Cloudflare Pages function
    */
-  private async makeDirectRequest<T>(
+  private async makeCloudflareRequest<T>(
     endpoint: string,
     method: string,
     body?: Record<string, unknown>
   ): Promise<{ success: boolean; data?: T; error?: string }> {
-    const url = `${NEURON_API_BASE}${endpoint}`;
-    
     try {
-      const fetchOptions: RequestInit = {
-        method: method === 'GET' ? 'GET' : 'POST',
+      console.log(`[NeuronWriter] Cloudflare proxy call: ${endpoint}`);
+      
+      const response = await fetch('/api/neuronwriter', {
+        method: 'POST',
         headers: {
-          'X-API-KEY': this.apiKey,
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
+          'X-NeuronWriter-Key': this.apiKey,
         },
-      };
+        body: JSON.stringify({
+          endpoint,
+          method,
+          apiKey: this.apiKey,
+          body,
+        }),
+      });
 
-      if (body && method !== 'GET') {
-        fetchOptions.body = JSON.stringify(body);
+      if (response.status === 404) {
+        return { success: false, error: 'Cloudflare proxy not available' };
       }
 
-      console.log(`[NeuronWriter] Direct API call: ${method} ${endpoint}`);
-      const response = await fetch(url, fetchOptions);
-
-      if (!response.ok) {
-        // Check for common error codes
-        if (response.status === 401 || response.status === 403) {
-          return { success: false, error: 'Invalid API key. Please check your NeuronWriter API key.' };
-        }
-        if (response.status === 429) {
-          return { success: false, error: 'Rate limit exceeded. Please try again later.' };
-        }
-        return { success: false, error: `API error: ${response.status} ${response.statusText}` };
+      const result = await response.json();
+      
+      if (!result.success) {
+        return { success: false, error: result.error || 'Cloudflare proxy error' };
       }
 
-      const text = await response.text();
-      if (!text || text.trim() === '') {
-        return { success: false, error: 'Empty response from NeuronWriter API' };
-      }
-
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        return { success: false, error: `Invalid JSON response: ${text.substring(0, 100)}` };
-      }
-
-      return { success: true, data: data as T };
+      return { success: true, data: result.data as T };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      
-      // Check for CORS errors
-      if (errorMsg.includes('CORS') || errorMsg.includes('NetworkError') || errorMsg.includes('Failed to fetch')) {
-        return { 
-          success: false, 
-          error: 'CORS error: NeuronWriter API cannot be called directly from the browser. Please enable Lovable Cloud or deploy to production for this feature.'
-        };
-      }
-      
-      return { success: false, error: errorMsg };
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Cloudflare proxy error' 
+      };
     }
   }
 
