@@ -96,6 +96,25 @@ export function ReviewExport() {
       progress: 0,
     })));
 
+    // Build site pages with proper titles extracted from URLs
+    const sitePages = sitemapUrls.map(url => {
+      try {
+        const urlObj = new URL(url);
+        const pathname = urlObj.pathname;
+        // Extract slug and convert to title
+        const slug = pathname.split('/').filter(Boolean).pop() || '';
+        const title = slug
+          .replace(/[-_]/g, ' ')
+          .replace(/\b\w/g, c => c.toUpperCase())
+          .trim() || urlObj.hostname;
+        return { url, title, keywords: slug.split('-').filter(w => w.length > 2) };
+      } catch {
+        return { url, title: url, keywords: [] };
+      }
+    });
+
+    console.log(`[ReviewExport] Creating orchestrator with ${sitePages.length} site pages for internal linking`);
+
     const orchestrator = createOrchestrator({
       apiKeys: {
         geminiApiKey: config.geminiApiKey,
@@ -111,10 +130,17 @@ export function ReviewExport() {
       organizationUrl: config.wpUrl || 'https://example.com',
       logoUrl: config.logoUrl,
       authorName: config.authorName || 'Content Team',
-      sitePages: sitemapUrls.map(url => ({ url, title: url.split('/').pop() || '' })),
+      sitePages,
       primaryModel: config.primaryModel,
       useConsensus: false,
+      // NeuronWriter integration
+      neuronWriterApiKey: config.enableNeuronWriter ? config.neuronWriterApiKey : undefined,
+      neuronWriterProjectId: config.enableNeuronWriter ? config.neuronWriterProjectId : undefined,
     });
+
+    if (config.enableNeuronWriter && config.neuronWriterApiKey) {
+      console.log(`[ReviewExport] NeuronWriter enabled with project: ${config.neuronWriterProjectName}`);
+    }
 
     let completed = 0;
     for (let i = 0; i < toGenerate.length; i++) {

@@ -38,6 +38,9 @@ interface OrchestratorConfig {
   targetCountry?: string;
   useConsensus?: boolean;
   primaryModel?: AIModel;
+  // NeuronWriter integration
+  neuronWriterApiKey?: string;
+  neuronWriterProjectId?: string;
 }
 
 interface GenerationOptions {
@@ -50,6 +53,7 @@ interface GenerationOptions {
   injectLinks?: boolean;
   generateSchema?: boolean;
   validateEEAT?: boolean;
+  neuronWriterQueryId?: string; // Pre-analyzed NeuronWriter query
   onProgress?: (message: string) => void;
 }
 
@@ -126,11 +130,27 @@ export class EnterpriseContentOrchestrator {
     // Remove AI phrases
     enhancedContent = removeAIPhrases(enhancedContent);
 
-    // Inject internal links
+    // Inject internal links from crawled sitemap
     if (options.injectLinks !== false && this.config.sitePages && this.config.sitePages.length > 0) {
+      this.log(`Finding internal links from ${this.config.sitePages.length} crawled pages...`);
+      
+      // Update the link engine with current site pages
+      this.linkEngine.updateSitePages(this.config.sitePages);
+      
+      // Generate link opportunities (target 8-12 high-quality contextual links)
       const linkOpportunities = this.linkEngine.generateLinkOpportunities(enhancedContent, 12);
-      enhancedContent = this.linkEngine.injectContextualLinks(enhancedContent, linkOpportunities);
-      this.log(`Injected ${linkOpportunities.length} internal links`);
+      
+      if (linkOpportunities.length > 0) {
+        enhancedContent = this.linkEngine.injectContextualLinks(enhancedContent, linkOpportunities);
+        this.log(`✅ Injected ${linkOpportunities.length} internal links to REAL site pages:`);
+        linkOpportunities.slice(0, 5).forEach(link => {
+          this.log(`   → "${link.anchor}" → ${link.targetUrl}`);
+        });
+      } else {
+        this.log('⚠️ No matching anchor text found in content for available pages');
+      }
+    } else {
+      this.log('⚠️ No site pages available for internal linking - crawl sitemap first');
     }
 
     // Phase 4: Validation (parallel quality + E-E-A-T)
@@ -240,114 +260,131 @@ Output ONLY the title, nothing else.`;
   ): Promise<string> {
     const targetWordCount = options.targetWordCount || serpAnalysis.recommendedWordCount || 2500;
     
-    const systemPrompt = `You are an EXPERT content writer who combines the persuasive power of Alex Hormozi with deep SEO expertise. Your content is:
+    const systemPrompt = `You are a WORLD-CLASS content strategist who writes like Alex Hormozi meets Tim Ferriss. Your writing is IMPOSSIBLE to detect as AI because it breaks every AI pattern:
 
-ALEX HORMOZI WRITING STYLE:
-- Direct, punchy sentences. No fluff. Pure value.
-- Use "I" and "you" constantly - make it personal
-- Include specific numbers and data (e.g., "increased conversions by 347%")
-- Short paragraphs (2-4 sentences MAX)
-- Bold claims backed by evidence
-- Conversational but authoritative
-- Story-driven with real examples
-- Action-oriented with clear next steps
+🔥 THE HORMOZI-FERRISS FUSION STYLE:
 
-FORBIDDEN AI PHRASES (NEVER USE):
-- "delve", "dive into", "in today's world", "it's important to note"
-- "comprehensive guide", "in this article", "let's explore"
-- "furthermore", "moreover", "in conclusion"
-- "cutting-edge", "game-changer", "revolutionary"
-- Any phrase that sounds like AI wrote it
+HORMOZI DNA:
+- Punch readers in the face with VALUE in the first sentence
+- "I" and "you" in every paragraph - this is a conversation, not a lecture
+- SPECIFIC numbers that prove credibility: "After testing 847 variations..." or "This saved our client $147,293..."
+- Short sentences. Punchy. Direct. No fluff.
+- Paragraphs max 3 sentences - wall of text = death
+- Bold contrarian takes that make people stop scrolling
+- Stories with specific details: names, dates, exact amounts
 
-VISUAL CONTENT REQUIREMENTS:
-You MUST include these visual HTML elements to break up text:
+FERRISS DNA:
+- Counterintuitive insights that challenge conventional wisdom
+- "What if the opposite were true?" framing
+- Specific tactical frameworks readers can implement TODAY
+- Real experiments with measurable outcomes
+- Name-drop specific tools, books, people (not generically)
+- Question everything the reader assumes
 
-1. KEY TAKEAWAYS BOX (at start):
+🚫 AI DETECTION KILLERS (NEVER USE THESE - INSTANT RED FLAG):
+- "In today's fast-paced world" / "In this comprehensive guide" / "Let's dive in"
+- "Furthermore" / "Moreover" / "In conclusion" / "It's worth noting"
+- "Delve" / "Explore" / "Landscape" / "Realm" / "Crucial" / "Vital"
+- "Leverage" / "Utilize" / "Facilitate" / "Implement" / "Navigate"
+- "Game-changer" / "Revolutionary" / "Cutting-edge" / "State-of-the-art"
+- "Seamlessly" / "Effortlessly" / "Meticulously" / "Holistic" / "Robust"
+- Starting sentences with "This" or "It" repeatedly
+- "Whether you're a... or a..." constructions
+- Any sentence that sounds like corporate AI slop
+
+✅ HUMAN WRITING PATTERNS:
+- Start sentences with "Look," / "Here's the thing:" / "Real talk:" / "I'll be honest:"
+- Use incomplete sentences for emphasis. Like this.
+- Include personal opinions: "Honestly? Most advice on this is garbage."
+- Show frustration: "This drives me insane about the industry..."
+- Admit uncertainty: "I could be wrong here, but..."
+- Use contractions everywhere: don't, won't, can't, it's, that's
+- Rhetorical questions: "Sound familiar?"
+- Informal transitions: "Anyway," / "So here's what happened:" / "Point is:"
+- Slang and casual phrases: "zero chance" / "dead wrong" / "the real kicker"
+
+📐 STRUCTURE REQUIREMENTS:
+
+1. HOOK SECTION (first 100 words): 
+Start with a bold statement, shocking stat, or controversial opinion. NO "welcome to" or "in this article."
+
+2. KEY TAKEAWAYS BOX (after hook):
 <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 16px; padding: 24px; margin: 24px 0;">
   <h3 style="color: white; margin-top: 0; font-size: 20px;">🎯 Key Takeaways</h3>
   <ul style="color: white; margin: 0; padding-left: 20px;">
-    <li>Point 1</li>
-    <li>Point 2</li>
+    <li>Takeaway 1</li>
+    <li>Takeaway 2</li>
   </ul>
 </div>
 
-2. PRO TIP BOXES (2-3 throughout):
+3. PRO TIP BOXES (3+ throughout):
 <div style="background: #1e40af; border-left: 4px solid #3b82f6; padding: 16px 20px; margin: 20px 0; border-radius: 0 12px 12px 0;">
   <strong style="color: #60a5fa;">💡 Pro Tip:</strong>
   <span style="color: #e0e7ff;"> Your tip here</span>
 </div>
 
-3. WARNING/IMPORTANT BOXES (1-2):
+4. WARNING BOXES (when relevant):
 <div style="background: #dc2626; border-left: 4px solid #f87171; padding: 16px 20px; margin: 20px 0; border-radius: 0 12px 12px 0;">
-  <strong style="color: white;">⚠️ Important:</strong>
-  <span style="color: #fecaca;"> Critical information here</span>
+  <strong style="color: white;">⚠️ Warning:</strong>
+  <span style="color: #fecaca;"> Critical warning</span>
 </div>
 
-4. DATA/COMPARISON TABLE (at least 1):
+5. DATA TABLE (at least 1):
 <table style="width: 100%; border-collapse: collapse; margin: 24px 0; border-radius: 12px; overflow: hidden;">
   <thead>
     <tr style="background: #1f2937;">
-      <th style="padding: 14px; text-align: left; color: white; border-bottom: 2px solid #374151;">Column 1</th>
-      <th style="padding: 14px; text-align: left; color: white; border-bottom: 2px solid #374151;">Column 2</th>
+      <th style="padding: 14px; text-align: left; color: white; border-bottom: 2px solid #374151;">Column</th>
     </tr>
   </thead>
   <tbody>
     <tr style="background: #111827;">
       <td style="padding: 12px; color: #d1d5db; border-bottom: 1px solid #374151;">Data</td>
-      <td style="padding: 12px; color: #d1d5db; border-bottom: 1px solid #374151;">Data</td>
     </tr>
   </tbody>
 </table>
 
-5. STEP-BY-STEP BOX (for how-to sections):
+6. STEP BOXES (for how-to):
 <div style="background: #1e293b; border-radius: 16px; padding: 24px; margin: 24px 0; border: 1px solid #334155;">
   <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
     <span style="background: #10b981; color: white; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">1</span>
     <strong style="color: white;">Step Title</strong>
   </div>
-  <p style="color: #94a3b8; margin: 0; padding-left: 44px;">Step description...</p>
-</div>`;
+  <p style="color: #94a3b8; margin: 0; padding-left: 44px;">Step description</p>
+</div>
 
-    const prompt = `Write a comprehensive ${targetWordCount}+ word article about "${keyword}".
+OUTPUT: Pure HTML only. No markdown. Proper h2/h3 hierarchy. Every paragraph must deliver VALUE.`;
+
+    const prompt = `Write a ${targetWordCount}+ word article about "${keyword}".
 
 TITLE: ${title}
 
-STRUCTURE TO FOLLOW:
+STRUCTURE:
 ${serpAnalysis.recommendedHeadings.map((h, i) => `${i + 1}. ${h}`).join('\n')}
 
-CONTENT GAPS TO ADDRESS (what competitors are missing):
+CONTENT GAPS TO FILL (competitors missed these):
 ${serpAnalysis.contentGaps.slice(0, 5).join('\n')}
 
-SEMANTIC ENTITIES TO INCLUDE NATURALLY:
+SEMANTIC KEYWORDS TO WEAVE IN:
 ${serpAnalysis.semanticEntities.slice(0, 15).join(', ')}
 
 ${videos.length > 0 ? `
-YOUTUBE VIDEOS TO EMBED - Include this video in the content using this exact HTML:
-${videos.slice(0, 1).map(v => `
+EMBED THIS VIDEO:
 <div style="position: relative; padding-bottom: 56.25%; height: 0; margin: 32px 0; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
-  <iframe src="https://www.youtube.com/embed/${v.id}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen title="${v.title}"></iframe>
+  <iframe src="https://www.youtube.com/embed/${videos[0].id}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen title="${videos[0].title}"></iframe>
 </div>
-<p style="text-align: center; color: #9ca3af; font-size: 14px; margin-top: 8px;">📺 <strong>${v.title}</strong> by ${v.channelTitle}</p>
-`).join('')}
+<p style="text-align: center; color: #9ca3af; font-size: 14px; margin-top: 8px;">📺 <strong>${videos[0].title}</strong> by ${videos[0].channelTitle}</p>
 ` : ''}
 
-REQUIRED CONTENT ELEMENTS:
-1. Opening hook that grabs attention (first 2 sentences MUST be compelling)
-2. Key Takeaways box immediately after intro
-3. At least 2 Pro Tip boxes throughout
-4. At least 1 comparison/data table
-5. Real statistics with sources
-6. FAQ section with 6-8 questions
-7. Strong call-to-action at the end
+REQUIREMENTS:
+1. First 2 sentences MUST be compelling - no "welcome" or "in this article"
+2. Key Takeaways box right after intro
+3. At least 3 Pro Tip boxes
+4. At least 1 data table
+5. FAQ section with 6-8 questions
+6. Strong CTA at the end
+7. Write like you're helping a friend - conversational but expert
 
-OUTPUT FORMAT:
-- Pure HTML only (no markdown)
-- Use proper heading hierarchy (h2, h3)
-- Include all visual boxes as specified above
-- Make every paragraph valuable - NO FILLER
-- Write like you're talking to a friend who needs real help
-
-Now write the BEST possible article about "${keyword}". Make it so good that readers share it.`;
+Write the article now. Make it so valuable people bookmark it.`;
 
     let result;
     if (this.config.useConsensus && this.engine.getAvailableModels().length > 1) {

@@ -15,7 +15,7 @@ export { YouTubeService, createYouTubeService } from './YouTubeService';
 export { ReferenceService, createReferenceService } from './ReferenceService';
 export { SERPAnalyzer, createSERPAnalyzer } from './SERPAnalyzer';
 export { SchemaGenerator, createSchemaGenerator } from './SchemaGenerator';
-export { SOTAInternalLinkEngine, createInternalLinkEngine } from './SOTAInternalLinkEngine';
+export { SOTAInternalLinkEngine, createInternalLinkEngine, type SitePage } from './SOTAInternalLinkEngine';
 
 // NeuronWriter Integration
 export { 

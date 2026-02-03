@@ -1,10 +1,11 @@
 // ============================================================
-// SOTA INTERNAL LINK ENGINE - Intelligent Internal Linking
+// SOTA INTERNAL LINK ENGINE v2.0 - REAL URLs from Crawled Sitemap
+// Uses actual sitemap URLs with intelligent contextual anchor text
 // ============================================================
 
 import type { InternalLink } from './types';
 
-interface SitePage {
+export interface SitePage {
   url: string;
   title: string;
   keywords?: string[];
@@ -21,10 +22,9 @@ export class SOTAInternalLinkEngine {
       'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
       'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'been',
       'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-      'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare', 'ought',
-      'used', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it',
-      'we', 'they', 'what', 'which', 'who', 'whom', 'whose', 'where', 'when',
-      'why', 'how', 'all', 'each', 'every', 'both', 'few', 'more', 'most',
+      'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'this', 'that',
+      'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what',
+      'which', 'who', 'all', 'each', 'every', 'both', 'few', 'more', 'most',
       'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so',
       'than', 'too', 'very', 'just', 'also', 'now', 'here', 'there', 'then'
     ]);
@@ -32,49 +32,187 @@ export class SOTAInternalLinkEngine {
 
   updateSitePages(pages: SitePage[]): void {
     this.sitePages = pages;
+    console.log(`[InternalLinkEngine] Updated with ${pages.length} site pages`);
   }
 
+  /**
+   * Generate internal link opportunities using REAL URLs from sitemap
+   * Only returns links to actual pages that exist on the site
+   */
   generateLinkOpportunities(
     content: string,
-    maxLinks: number = 15
+    maxLinks: number = 12
   ): InternalLink[] {
     if (this.sitePages.length === 0) {
+      console.log('[InternalLinkEngine] No site pages available - skipping internal links');
       return [];
     }
 
+    console.log(`[InternalLinkEngine] Finding links from ${this.sitePages.length} available pages`);
+    
     const opportunities: InternalLink[] = [];
     const usedUrls = new Set<string>();
     const usedAnchors = new Set<string>();
+    const contentLower = content.toLowerCase();
 
-    // Extract keywords from content
-    const contentKeywords = this.extractKeywords(content);
-
-    // Find matching pages for each keyword
-    for (const keyword of contentKeywords) {
+    // Strategy 1: Find pages whose title/slug appears in content (highest relevance)
+    for (const page of this.sitePages) {
       if (opportunities.length >= maxLinks) break;
+      if (usedUrls.has(page.url)) continue;
 
-      const matchingPage = this.findBestMatchingPage(keyword, usedUrls);
-      if (matchingPage) {
-        // Find the best context for this link
-        const context = this.findLinkContext(content, keyword);
-        if (context && !usedAnchors.has(keyword.toLowerCase())) {
-          opportunities.push({
-            anchor: keyword,
-            targetUrl: matchingPage.url,
-            context,
-            priority: this.calculateLinkPriority(keyword, matchingPage),
-            relevanceScore: this.calculateRelevanceScore(keyword, matchingPage)
-          });
-          usedUrls.add(matchingPage.url);
-          usedAnchors.add(keyword.toLowerCase());
+      const matchResult = this.findBestAnchorInContent(content, contentLower, page);
+      if (matchResult && !usedAnchors.has(matchResult.anchor.toLowerCase())) {
+        opportunities.push({
+          anchor: matchResult.anchor,
+          targetUrl: page.url,
+          context: matchResult.context,
+          priority: matchResult.priority,
+          relevanceScore: matchResult.relevance
+        });
+        usedUrls.add(page.url);
+        usedAnchors.add(matchResult.anchor.toLowerCase());
+      }
+    }
+
+    // Strategy 2: For remaining slots, find contextually relevant pages
+    if (opportunities.length < maxLinks) {
+      const contentKeywords = this.extractKeywords(content);
+      
+      for (const page of this.sitePages) {
+        if (opportunities.length >= maxLinks) break;
+        if (usedUrls.has(page.url)) continue;
+
+        const keywordMatch = this.findKeywordMatch(contentKeywords, page);
+        if (keywordMatch && !usedAnchors.has(keywordMatch.anchor.toLowerCase())) {
+          const context = this.findLinkContext(content, keywordMatch.anchor);
+          if (context) {
+            opportunities.push({
+              anchor: keywordMatch.anchor,
+              targetUrl: page.url,
+              context,
+              priority: keywordMatch.priority,
+              relevanceScore: keywordMatch.relevance
+            });
+            usedUrls.add(page.url);
+            usedAnchors.add(keywordMatch.anchor.toLowerCase());
+          }
         }
       }
     }
 
-    // Sort by priority and relevance
+    console.log(`[InternalLinkEngine] Generated ${opportunities.length} internal link opportunities`);
+    
     return opportunities
       .sort((a, b) => (b.priority + b.relevanceScore) - (a.priority + a.relevanceScore))
       .slice(0, maxLinks);
+  }
+
+  /**
+   * Find the best anchor text for a page within the content
+   */
+  private findBestAnchorInContent(
+    content: string, 
+    contentLower: string, 
+    page: SitePage
+  ): { anchor: string; context: string; priority: number; relevance: number } | null {
+    // Extract potential anchors from the page
+    const titleWords = this.extractMeaningfulWords(page.title);
+    const slugWords = this.extractSlugWords(page.url);
+    
+    // Try to find multi-word phrases from title
+    const titlePhrases = this.generatePhrases(titleWords, 2, 4);
+    
+    for (const phrase of titlePhrases) {
+      const phraseLower = phrase.toLowerCase();
+      const index = contentLower.indexOf(phraseLower);
+      if (index !== -1) {
+        // Get the actual case from content
+        const actualPhrase = content.substring(index, index + phrase.length);
+        const context = this.getContextAroundIndex(content, index, phrase.length);
+        
+        // Higher priority for longer, more specific matches
+        const priority = 80 + (phrase.split(' ').length * 5);
+        const relevance = 90;
+        
+        return { anchor: actualPhrase, context, priority, relevance };
+      }
+    }
+    
+    // Try single meaningful words from title
+    for (const word of titleWords) {
+      if (word.length < 4) continue;
+      const wordLower = word.toLowerCase();
+      const regex = new RegExp(`\\b${this.escapeRegex(wordLower)}\\b`, 'i');
+      const match = content.match(regex);
+      if (match && match.index !== undefined) {
+        const actualWord = content.substring(match.index, match.index + word.length);
+        const context = this.getContextAroundIndex(content, match.index, word.length);
+        return { anchor: actualWord, context, priority: 50, relevance: 60 };
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Find keyword-based matches
+   */
+  private findKeywordMatch(
+    contentKeywords: string[],
+    page: SitePage
+  ): { anchor: string; priority: number; relevance: number } | null {
+    const pageTitleLower = page.title.toLowerCase();
+    const pageKeywords = page.keywords?.map(k => k.toLowerCase()) || [];
+    
+    for (const keyword of contentKeywords) {
+      const keywordLower = keyword.toLowerCase();
+      
+      // Check if keyword matches page title or keywords
+      if (pageTitleLower.includes(keywordLower) || pageKeywords.some(pk => pk.includes(keywordLower))) {
+        return {
+          anchor: keyword,
+          priority: 40,
+          relevance: 50
+        };
+      }
+    }
+    
+    return null;
+  }
+
+  private extractMeaningfulWords(text: string): string[] {
+    return text
+      .split(/\s+/)
+      .map(w => w.replace(/[^a-zA-Z0-9]/g, ''))
+      .filter(w => w.length > 2 && !this.stopWords.has(w.toLowerCase()));
+  }
+
+  private extractSlugWords(url: string): string[] {
+    try {
+      const slug = new URL(url).pathname.split('/').pop() || '';
+      return slug.split('-').filter(w => w.length > 2 && !this.stopWords.has(w.toLowerCase()));
+    } catch {
+      return [];
+    }
+  }
+
+  private generatePhrases(words: string[], minLen: number, maxLen: number): string[] {
+    const phrases: string[] = [];
+    
+    for (let len = maxLen; len >= minLen; len--) {
+      for (let i = 0; i <= words.length - len; i++) {
+        phrases.push(words.slice(i, i + len).join(' '));
+      }
+    }
+    
+    return phrases;
+  }
+
+  private getContextAroundIndex(content: string, index: number, matchLength: number): string {
+    const text = content.replace(/<[^>]*>/g, ' ');
+    const start = Math.max(0, index - 80);
+    const end = Math.min(text.length, index + matchLength + 80);
+    return text.slice(start, end).trim();
   }
 
   private extractKeywords(content: string): string[] {
@@ -233,30 +371,51 @@ export class SOTAInternalLinkEngine {
     return Math.round((intersection.size / union.size) * 100);
   }
 
+  /**
+   * Inject contextual links into content - ONLY uses real URLs from sitemap
+   */
   injectContextualLinks(content: string, links: InternalLink[]): string {
+    if (links.length === 0) {
+      console.log('[InternalLinkEngine] No links to inject');
+      return content;
+    }
+
     let modifiedContent = content;
     const injectedAnchors = new Set<string>();
+    let injectedCount = 0;
 
     // Sort links by anchor length (longer first to avoid partial replacements)
-    const sortedLinks = [...links].sort((a, b) => b.anchor.length - a.anchor.length);
+    const sortedLinks = [...links].sort((a, b) => (b.anchor?.length || 0) - (a.anchor?.length || 0));
 
     for (const link of sortedLinks) {
-      if (injectedAnchors.has(link.anchor.toLowerCase())) continue;
+      const anchor = link.anchor || link.anchorText || link.text;
+      if (!anchor || injectedAnchors.has(anchor.toLowerCase())) continue;
+      if (!link.targetUrl) continue;
 
       // Find the first occurrence that's not already linked
-      const regex = new RegExp(
-        `(?<!<a[^>]*>)\\b(${this.escapeRegex(link.anchor)})\\b(?![^<]*<\/a>)`,
-        'i'
-      );
+      // Use negative lookbehind/lookahead to avoid re-linking
+      try {
+        const escapedAnchor = this.escapeRegex(anchor);
+        const regex = new RegExp(
+          `(?<!<a[^>]*>)(?<![\\w-])\\b(${escapedAnchor})\\b(?![^<]*<\\/a>)`,
+          'i'
+        );
 
-      const match = modifiedContent.match(regex);
-      if (match && match[1]) {
-        const replacement = `<a href="${link.targetUrl}" title="${link.anchor}">${match[1]}</a>`;
-        modifiedContent = modifiedContent.replace(regex, replacement);
-        injectedAnchors.add(link.anchor.toLowerCase());
+        const match = modifiedContent.match(regex);
+        if (match && match[1] && match.index !== undefined) {
+          const actualText = modifiedContent.substring(match.index, match.index + match[1].length);
+          const linkHtml = `<a href="${link.targetUrl}" title="${anchor}">${actualText}</a>`;
+          modifiedContent = modifiedContent.slice(0, match.index) + linkHtml + modifiedContent.slice(match.index + match[1].length);
+          injectedAnchors.add(anchor.toLowerCase());
+          injectedCount++;
+          console.log(`[InternalLinkEngine] Injected: "${anchor}" → ${link.targetUrl}`);
+        }
+      } catch (e) {
+        console.warn(`[InternalLinkEngine] Regex failed for anchor "${anchor}":`, e);
       }
     }
 
+    console.log(`[InternalLinkEngine] Successfully injected ${injectedCount} links`);
     return modifiedContent;
   }
 
