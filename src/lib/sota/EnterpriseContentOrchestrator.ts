@@ -28,6 +28,122 @@ import { EEATValidator, createEEATValidator } from './EEATValidator';
 import { generationCache } from './cache';
 import { NeuronWriterService, createNeuronWriterService, type NeuronWriterAnalysis } from './NeuronWriterService';
 
+/**
+ * CRITICAL: Convert any markdown syntax to proper HTML
+ * This catches cases where the AI model outputs markdown despite instructions for HTML
+ */
+function convertMarkdownToHTML(content: string): string {
+  let html = content;
+  
+  // Convert markdown headings to HTML headings (must be done carefully to not break existing HTML)
+  // Match markdown headings at the start of a line that are NOT inside HTML tags
+  
+  // H1: # heading
+  html = html.replace(/^# ([^\n<]+)$/gm, '<h1>$1</h1>');
+  html = html.replace(/^#\s+([^\n<]+)$/gm, '<h1>$1</h1>');
+  
+  // H2: ## heading - be careful not to match ### 
+  html = html.replace(/^## ([^\n#<]+)$/gm, '<h2 style="color: #1f2937; font-size: 28px; font-weight: 800; margin: 48px 0 24px 0; padding-bottom: 12px; border-bottom: 3px solid #10b981;">$1</h2>');
+  html = html.replace(/^##\s+([^\n#<]+)$/gm, '<h2 style="color: #1f2937; font-size: 28px; font-weight: 800; margin: 48px 0 24px 0; padding-bottom: 12px; border-bottom: 3px solid #10b981;">$1</h2>');
+  
+  // H3: ### heading
+  html = html.replace(/^### ([^\n#<]+)$/gm, '<h3 style="color: #374151; font-size: 22px; font-weight: 700; margin: 36px 0 16px 0;">$1</h3>');
+  html = html.replace(/^###\s+([^\n#<]+)$/gm, '<h3 style="color: #374151; font-size: 22px; font-weight: 700; margin: 36px 0 16px 0;">$1</h3>');
+  
+  // H4: #### heading
+  html = html.replace(/^#### ([^\n#<]+)$/gm, '<h4 style="color: #4b5563; font-size: 18px; font-weight: 700; margin: 28px 0 12px 0;">$1</h4>');
+  html = html.replace(/^####\s+([^\n#<]+)$/gm, '<h4 style="color: #4b5563; font-size: 18px; font-weight: 700; margin: 28px 0 12px 0;">$1</h4>');
+  
+  // Convert bold markdown **text** to <strong> (only if not already HTML)
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  
+  // Convert italic markdown *text* or _text_ to <em>
+  html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+  html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+  
+  // Convert markdown links [text](url) to <a> tags
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #059669; text-decoration: underline;">$1</a>');
+  
+  // Convert markdown lists to HTML lists
+  // Unordered lists: - item or * item
+  html = html.replace(/^[-*] (.+)$/gm, '<li style="margin-bottom: 8px; line-height: 1.8;">$1</li>');
+  
+  // Ordered lists: 1. item
+  html = html.replace(/^\d+\. (.+)$/gm, '<li style="margin-bottom: 8px; line-height: 1.8;">$1</li>');
+  
+  // Wrap consecutive <li> elements in <ul> or <ol>
+  html = html.replace(/(<li[^>]*>.*<\/li>\n?)+/g, (match) => {
+    return `<ul style="margin: 20px 0; padding-left: 24px; color: #374151;">${match}</ul>`;
+  });
+  
+  // Convert markdown code blocks ```code``` to <pre><code>
+  html = html.replace(/```([^`]+)```/gs, '<pre style="background: #f3f4f6; padding: 16px; border-radius: 8px; overflow-x: auto; margin: 20px 0;"><code style="color: #374151; font-size: 14px;">$1</code></pre>');
+  
+  // Convert inline code `code` to <code>
+  html = html.replace(/`([^`]+)`/g, '<code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 14px;">$1</code>');
+  
+  // Convert markdown blockquotes > text to <blockquote>
+  html = html.replace(/^> (.+)$/gm, '<blockquote style="border-left: 4px solid #10b981; padding-left: 20px; margin: 20px 0; color: #4b5563; font-style: italic;">$1</blockquote>');
+  
+  // Convert markdown horizontal rules --- or *** to <hr>
+  html = html.replace(/^[-*]{3,}$/gm, '<hr style="border: 0; border-top: 2px solid #e5e7eb; margin: 32px 0;">');
+  
+  // Wrap plain paragraphs in <p> tags (lines that don't start with < and aren't empty)
+  const lines = html.split('\n');
+  const processedLines: string[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Skip empty lines, lines that start with HTML tags, or are already inside block elements
+    if (!line || line.startsWith('<') || line.startsWith('</')) {
+      processedLines.push(lines[i]);
+    } else {
+      // Wrap in paragraph tag
+      processedLines.push(`<p style="color: #374151; font-size: 17px; line-height: 1.9; margin: 20px 0;">${line}</p>`);
+    }
+  }
+  
+  html = processedLines.join('\n');
+  
+  // Clean up any remaining markdown artifacts
+  // Remove ## or ### at the start of headings that weren't caught
+  html = html.replace(/<h[1-6][^>]*>#{1,6}\s*/gi, (match) => match.replace(/#{1,6}\s*/, ''));
+  
+  // Remove stray ## or ### that might appear mid-text
+  html = html.replace(/(?<!<[^>]*)#{2,6}\s+/g, '');
+  
+  return html;
+}
+
+/**
+ * Ensure proper HTML structure for WordPress
+ * Fixes common issues and ensures consistent formatting
+ */
+function ensureProperHTMLStructure(content: string): string {
+  let html = content;
+  
+  // Fix any double-wrapped paragraphs
+  html = html.replace(/<p[^>]*>\s*<p/g, '<p');
+  html = html.replace(/<\/p>\s*<\/p>/g, '</p>');
+  
+  // Ensure proper spacing between sections
+  html = html.replace(/<\/div>\s*<h2/g, '</div>\n\n<h2');
+  html = html.replace(/<\/p>\s*<h2/g, '</p>\n\n<h2');
+  html = html.replace(/<\/div>\s*<h3/g, '</div>\n\n<h3');
+  html = html.replace(/<\/p>\s*<h3/g, '</p>\n\n<h3');
+  
+  // Remove empty paragraphs
+  html = html.replace(/<p[^>]*>\s*<\/p>/g, '');
+  
+  // Fix broken heading styles - ensure all h2 and h3 have proper styling
+  html = html.replace(/<h2>([^<]+)<\/h2>/g, '<h2 style="color: #1f2937; font-size: 28px; font-weight: 800; margin: 48px 0 24px 0; padding-bottom: 12px; border-bottom: 3px solid #10b981;">$1</h2>');
+  html = html.replace(/<h3>([^<]+)<\/h3>/g, '<h3 style="color: #374151; font-size: 22px; font-weight: 700; margin: 36px 0 16px 0;">$1</h3>');
+  html = html.replace(/<h4>([^<]+)<\/h4>/g, '<h4 style="color: #4b5563; font-size: 18px; font-weight: 700; margin: 28px 0 12px 0;">$1</h4>');
+  
+  return html;
+}
+
 type NeuronBundle = {
   service: NeuronWriterService;
   queryId: string;
@@ -475,11 +591,12 @@ RULES:
 4. Maintain the article's voice and quality
 5. Add 3-5 new paragraphs if needed to incorporate terms naturally
 6. Include each missing term at least once, ideally 2-3 times in different contexts
+7. OUTPUT PURE HTML ONLY - NO MARKDOWN! Use <h2>, <h3>, <p>, <ul>, <li> tags - NEVER use ## or ### or * for formatting
 
 CURRENT ARTICLE:
 ${currentContent}
 
-OUTPUT: Return the COMPLETE improved article with ALL missing terms naturally woven in.`;
+OUTPUT: Return the COMPLETE improved article in PURE HTML format (no markdown) with ALL missing terms naturally woven in.`;
 
             const improvedResult = await this.engine.generateWithModel({
               prompt: improvementPrompt,
@@ -503,7 +620,11 @@ Improve it by:
 3. Strengthening the keyword presence in headings
 4. Adding more specific data points and statistics
 
-Keep ALL existing content and ADD to it. Return the COMPLETE improved article.
+CRITICAL: OUTPUT PURE HTML ONLY - NO MARKDOWN!
+Use <h2>, <h3>, <p>, <ul>, <li>, <strong>, <em> tags
+NEVER use ## or ### or * or ** for formatting
+
+Keep ALL existing content and ADD to it. Return the COMPLETE improved article in PURE HTML format.
 
 CURRENT ARTICLE:
 ${currentContent}`;
@@ -541,6 +662,12 @@ ${currentContent}`;
     const internalLinks = this.linkEngine.generateLinkOpportunities(enhancedContent);
     
     // Run quality and E-E-A-T validation in parallel
+    // CRITICAL: Convert any remaining markdown to proper HTML
+    // This catches cases where the AI outputs markdown despite HTML instructions
+    this.log('Finalizing HTML: Converting any markdown remnants...');
+    enhancedContent = convertMarkdownToHTML(enhancedContent);
+    enhancedContent = ensureProperHTMLStructure(enhancedContent);
+    
     const [qualityScore, eeatScore] = await Promise.all([
       Promise.resolve(calculateQualityScore(enhancedContent, options.keyword, internalLinks.map(l => l.targetUrl))),
       Promise.resolve(this.eeatValidator.validateContent(enhancedContent, {
@@ -858,7 +985,20 @@ Start with the ANSWER or a bold statement. No "welcome to" garbage. Give them th
   <p style="color: #1f2937; margin: 0; font-size: 17px; line-height: 1.8;">According to [Study Name, Year], researchers found that [specific finding with numbers]. This was based on [methodology/sample size].</p>
 </div>
 
-🎯 OUTPUT: Pure HTML only. No markdown. Proper h2/h3 hierarchy. Every paragraph MUST deliver VALUE. All text must be readable on light backgrounds (use dark text colors like #1f2937, #374151, #4b5563).`;
+🎯 OUTPUT REQUIREMENTS - CRITICAL:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• PURE HTML ONLY - ABSOLUTELY NO MARKDOWN SYNTAX
+• For headings: Use <h2> and <h3> tags ONLY - NEVER use ## or ### symbols
+• For bold: Use <strong> tags ONLY - NEVER use **text** or __text__
+• For italic: Use <em> tags ONLY - NEVER use *text* or _text_
+• For lists: Use <ul>/<ol> and <li> tags ONLY - NEVER use - or * or 1. at start of lines
+• For links: Use <a href="url"> tags ONLY - NEVER use [text](url) format
+• For paragraphs: Wrap all text in <p> tags with proper styling
+• Proper h2/h3 hierarchy throughout
+• Every paragraph MUST deliver VALUE
+• All text must be readable on light backgrounds (use dark text colors like #1f2937, #374151, #4b5563)
+
+⚠️ IF YOU OUTPUT ANY MARKDOWN SYNTAX (##, ###, **, *, -, 1., [text](url)), THE CONTENT WILL BE REJECTED!`;
 
     const prompt = `Write a ${targetWordCount}+ word article about "${keyword}".
 
