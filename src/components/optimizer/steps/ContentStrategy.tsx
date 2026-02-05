@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { getSupabaseAnonKey, getSupabaseUrl } from "@/integrations/supabase/client";
 import { crawlSitemapUrls, type SitemapCrawlProgress } from "@/lib/sitemap/crawlSitemap";
 import { fetchSitemapTextRaced } from "@/lib/sitemap/fetchSitemapText";
 import { discoverWordPressUrls } from "@/lib/sitemap/wordpressDiscovery";
@@ -119,13 +118,8 @@ export function ContentStrategy() {
    * and return the first successful result. This makes the crawl 5-10x faster.
    */
   const fetchSitemapText = async (targetUrl: string, externalSignal?: AbortSignal): Promise<string> => {
-    const supabaseUrl = getSupabaseUrl();
-    const anonKey = getSupabaseAnonKey();
     return fetchSitemapTextRaced(targetUrl, {
-      supabaseUrl,
-      supabaseAnonKey: anonKey,
       signal: externalSignal,
-      // GearUpToFit's Yoast sitemaps can be slow/cold-start on the server; give the Supabase strategy time.
       perStrategyTimeoutMs: 25000,
       overallTimeoutMs: 35000,
     });
@@ -196,24 +190,17 @@ export function ContentStrategy() {
       // ✅ FASTEST PATH (WordPress): Try server-side WP REST discovery FIRST (even if a sitemap XML was provided).
       // This bypasses giant Yoast post-sitemaps (often slow) and avoids browser CORS.
       try {
-        const supabaseUrl = getSupabaseUrl();
-        const anonKey = getSupabaseAnonKey();
-
-        const tryWpDiscoverViaSupabase = async (): Promise<string[] | null> => {
-          if (!supabaseUrl || !anonKey) return null;
-
+        const tryWpDiscoverViaApi = async (): Promise<string[] | null> => {
           const controller = new AbortController();
           const timeoutId = window.setTimeout(() => controller.abort(), 20000);
           if (signal.aborted) throw new Error("Cancelled");
           signal.addEventListener("abort", () => controller.abort(), { once: true });
 
           try {
-            const res = await fetch(`${supabaseUrl}/functions/v1/wp-discover`, {
+            const res = await fetch('/api/wp-discover', {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
-                apikey: anonKey,
-                Authorization: `Bearer ${anonKey}`,
               },
               body: JSON.stringify({ siteUrl: input, perPage: 100, maxPages: 250, maxUrls: 100000 }),
               signal: controller.signal,
@@ -228,7 +215,7 @@ export function ContentStrategy() {
 
         setCrawlStatus("Trying WordPress API…");
         const wpUrls =
-          (await tryWpDiscoverViaSupabase()) ??
+          (await tryWpDiscoverViaApi()) ??
           (await discoverWordPressUrls(input, {
             signal,
             timeoutMs: 8000,
