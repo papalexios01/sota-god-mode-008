@@ -110,8 +110,16 @@ function convertMarkdownToHTML(content: string): string {
   // Remove ## or ### at the start of headings that weren't caught
   html = html.replace(/<h[1-6][^>]*>#{1,6}\s*/gi, (match) => match.replace(/#{1,6}\s*/, ''));
   
-  // Remove stray ## or ### that might appear mid-text
-  html = html.replace(/(?<!<[^>]*)#{2,6}\s+/g, '');
+  // Remove stray ## or ### that appear at start of lines (not inside HTML tags)
+  // Process line by line to be safe
+  const finalLines = html.split('\n').map(line => {
+    // If line doesn't start with < (not an HTML tag), remove leading markdown headings
+    if (!line.trim().startsWith('<')) {
+      return line.replace(/^#{1,6}\s+/, '');
+    }
+    return line;
+  });
+  html = finalLines.join('\n');
   
   return html;
 }
@@ -599,11 +607,11 @@ ${currentContent}
 OUTPUT: Return the COMPLETE improved article in PURE HTML format (no markdown) with ALL missing terms naturally woven in.`;
 
             const improvedResult = await this.engine.generateWithModel({
-              prompt: improvementPrompt,
+              prompt: improvementPrompt + `\n\n[Improvement attempt ${attempt + 1} of ${maxImprovementAttempts}]`,
               model: this.config.primaryModel || 'gemini',
               apiKeys: this.config.apiKeys,
-              systemPrompt: 'You are an expert SEO content optimizer. Improve articles by naturally incorporating missing keywords to achieve 90%+ NeuronWriter scores.',
-              temperature: 0.5
+              systemPrompt: 'You are an expert SEO content optimizer. Improve articles by naturally incorporating missing keywords to achieve 90%+ NeuronWriter scores. Output PURE HTML ONLY.',
+              temperature: 0.6 + (attempt * 0.1) // Increase temperature slightly each attempt for variation
             });
             
             if (improvedResult.content && improvedResult.content.length > currentContent.length * 0.8) {
@@ -630,11 +638,11 @@ CURRENT ARTICLE:
 ${currentContent}`;
 
             const improvedResult = await this.engine.generateWithModel({
-              prompt: generalPrompt,
+              prompt: generalPrompt + `\n\n[Improvement attempt ${attempt + 1} of ${maxImprovementAttempts}]`,
               model: this.config.primaryModel || 'gemini',
               apiKeys: this.config.apiKeys,
-              systemPrompt: 'You are an expert SEO content optimizer.',
-              temperature: 0.6
+              systemPrompt: 'You are an expert SEO content optimizer. Output PURE HTML ONLY.',
+              temperature: 0.6 + (attempt * 0.1)
             });
             
             if (improvedResult.content && improvedResult.content.length > currentContent.length * 0.8) {

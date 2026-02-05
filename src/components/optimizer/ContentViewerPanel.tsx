@@ -8,7 +8,7 @@ import {
   FileText, Code, Search, BarChart3, Link2, Shield,
   ChevronLeft, ChevronRight, Maximize2, Minimize2,
   BookOpen, Clock, Target, Zap, Award, Eye, EyeOff,
-  TrendingUp, CheckCircle, AlertTriangle, Brain,
+  TrendingUp, CheckCircle, AlertTriangle, Brain, Globe,
   Hash, List, Type, ArrowRight, Upload, Loader2,
   Edit3, Save, RotateCcw, Bold, Italic, Heading1, Heading2, Heading3, 
   ListOrdered, Quote, Table, Image as ImageIcon, Undo, Redo
@@ -949,6 +949,114 @@ export function ContentViewerPanel({
                         </div>
                       </div>
                     </div>
+
+                    {/* Extended Terms & Entities Row */}
+                    <div className="grid md:grid-cols-2 gap-6">
+                      {/* Extended Terms */}
+                      {neuronData.termsExtended && neuronData.termsExtended.length > 0 && (
+                        <div className="bg-card/50 border border-border rounded-xl p-6">
+                          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-green-400" />
+                            Extended Terms
+                            <span className="ml-auto text-sm text-muted-foreground">
+                              {countTermsUsed(neuronData.termsExtended, content)}/{neuronData.termsExtended.length} used
+                            </span>
+                          </h3>
+                          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                            {neuronData.termsExtended.slice(0, 50).map((term, i) => (
+                              <TermRowNeuron key={i} term={term} content={content} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Entities */}
+                      {neuronData.entities && neuronData.entities.length > 0 && (
+                        <div className="bg-card/50 border border-border rounded-xl p-6">
+                          <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                            <Globe className="w-5 h-5 text-orange-400" />
+                            Named Entities
+                            <span className="ml-auto text-sm text-muted-foreground">
+                              {neuronData.entities.filter(e => content.toLowerCase().includes(e.entity.toLowerCase())).length}/{neuronData.entities.length} used
+                            </span>
+                          </h3>
+                          <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                            {neuronData.entities.map((entity, i) => {
+                              const isUsed = content.toLowerCase().includes(entity.entity.toLowerCase());
+                              return (
+                                <div key={i} className={`flex items-center justify-between p-2 rounded-lg border ${isUsed ? 'bg-green-500/10 border-green-500/30' : 'bg-muted/30 border-border'}`}>
+                                  <span className={`text-sm ${isUsed ? 'text-green-400' : 'text-muted-foreground'}`}>
+                                    {isUsed && <CheckCircle className="w-3 h-3 inline mr-1" />}
+                                    {entity.entity}
+                                    {entity.type && <span className="ml-1 text-xs opacity-60">[{entity.type}]</span>}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">{entity.usage_pc || 30}%</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* H2/H3 Headings Suggestions */}
+                    {((neuronData.headingsH2 && neuronData.headingsH2.length > 0) || (neuronData.headingsH3 && neuronData.headingsH3.length > 0)) && (
+                      <div className="grid md:grid-cols-2 gap-6">
+                        {/* H2 Headings */}
+                        {neuronData.headingsH2 && neuronData.headingsH2.length > 0 && (
+                          <div className="bg-card/50 border border-border rounded-xl p-6">
+                            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                              <Type className="w-5 h-5 text-blue-400" />
+                              Recommended H2 Headings
+                              <span className="ml-auto text-sm text-muted-foreground">
+                                {neuronData.headingsH2.filter(h => content.toLowerCase().includes(h.text.toLowerCase().slice(0, 20))).length}/{neuronData.headingsH2.length}
+                              </span>
+                            </h3>
+                            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                              {neuronData.headingsH2.map((heading, i) => {
+                                const isUsed = content.toLowerCase().includes(heading.text.toLowerCase().slice(0, 20));
+                                return (
+                                  <div key={i} className={`flex items-start justify-between p-2 rounded-lg border ${isUsed ? 'bg-green-500/10 border-green-500/30' : 'bg-muted/30 border-border'}`}>
+                                    <span className={`text-sm ${isUsed ? 'text-green-400' : 'text-muted-foreground'}`}>
+                                      {isUsed && <CheckCircle className="w-3 h-3 inline mr-1" />}
+                                      {heading.text}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground ml-2 shrink-0">{heading.usage_pc || 50}%</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* H3 Headings */}
+                        {neuronData.headingsH3 && neuronData.headingsH3.length > 0 && (
+                          <div className="bg-card/50 border border-border rounded-xl p-6">
+                            <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
+                              <List className="w-5 h-5 text-cyan-400" />
+                              Recommended H3 Subheadings
+                              <span className="ml-auto text-sm text-muted-foreground">
+                                {neuronData.headingsH3.filter(h => content.toLowerCase().includes(h.text.toLowerCase().slice(0, 15))).length}/{neuronData.headingsH3.length}
+                              </span>
+                            </h3>
+                            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                              {neuronData.headingsH3.map((heading, i) => {
+                                const isUsed = content.toLowerCase().includes(heading.text.toLowerCase().slice(0, 15));
+                                return (
+                                  <div key={i} className={`flex items-start justify-between p-2 rounded-lg border ${isUsed ? 'bg-green-500/10 border-green-500/30' : 'bg-muted/30 border-border'}`}>
+                                    <span className={`text-sm ${isUsed ? 'text-green-400' : 'text-muted-foreground'}`}>
+                                      {isUsed && <CheckCircle className="w-3 h-3 inline mr-1" />}
+                                      {heading.text}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground ml-2 shrink-0">{heading.usage_pc || 30}%</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Competitor Analysis */}
                     {neuronData.competitors && neuronData.competitors.length > 0 && (
