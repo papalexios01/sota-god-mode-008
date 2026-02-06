@@ -61,15 +61,27 @@ export function useWordPressPublish() {
         existingPostId: options?.existingPostId,
       };
 
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Supabase not configured. Cannot publish.');
+      }
+
+      const apiUrl = `${supabaseUrl}/functions/v1/wordpress-publish`;
+
       const maxAttempts = 3;
       let lastError: Error | null = null;
       let data: Record<string, unknown> | null = null;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          const response = await fetch('/api/wordpress-publish', {
+          const response = await fetch(apiUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseKey}`,
+            },
             body: JSON.stringify(body),
             signal: AbortSignal.timeout(90000),
           });
@@ -78,8 +90,7 @@ export function useWordPressPublish() {
 
           if (!responseText || responseText.trim().length === 0) {
             throw new Error(
-              `WordPress server returned empty response (HTTP ${response.status}). ` +
-              'The API server may not be running. Try refreshing the page.'
+              `Server returned empty response (HTTP ${response.status}). Try again.`
             );
           }
 
@@ -87,10 +98,7 @@ export function useWordPressPublish() {
             data = JSON.parse(responseText);
           } catch {
             if (response.status >= 500) {
-              throw new Error(`WordPress server error (HTTP ${response.status}). Try again in a moment.`);
-            }
-            if (response.status === 404) {
-              throw new Error('WordPress publish endpoint not found. Ensure the API server is running.');
+              throw new Error(`Server error (HTTP ${response.status}). Try again in a moment.`);
             }
             throw new Error(
               `Invalid response from server (HTTP ${response.status}): ${responseText.slice(0, 200)}`
@@ -104,7 +112,6 @@ export function useWordPressPublish() {
             !lastError.message.includes('Invalid WordPress URL') &&
             lastError.name !== 'AbortError';
           if (attempt < maxAttempts - 1 && isRetryable) {
-            console.warn(`[WordPress] Attempt ${attempt + 1} failed: ${lastError.message}. Retrying...`);
             await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
             continue;
           }
