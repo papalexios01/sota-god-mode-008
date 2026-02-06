@@ -45,16 +45,26 @@ const AI_TRIGGER_PHRASES = [
   'utilize'
 ];
 
-// Readability calculations
 function countSyllables(word: string): number {
-  word = word.toLowerCase().trim();
+  word = word.toLowerCase().trim().replace(/[^a-z]/g, '');
+  if (!word) return 0;
   if (word.length <= 3) return 1;
-  
-  word = word.replace(/(?:[^laeiouy]es|ed|[^laeiouy]e)$/, '');
-  word = word.replace(/^y/, '');
-  
-  const matches = word.match(/[aeiouy]{1,2}/g);
-  return matches ? matches.length : 1;
+
+  let count = 0;
+  const vowels = 'aeiouy';
+  let prevIsVowel = false;
+
+  for (let i = 0; i < word.length; i++) {
+    const isVowel = vowels.includes(word[i]);
+    if (isVowel && !prevIsVowel) count++;
+    prevIsVowel = isVowel;
+  }
+
+  if (word.endsWith('e') && !word.endsWith('le') && count > 1) count--;
+  if (word.endsWith('ed') && !word.endsWith('ted') && !word.endsWith('ded') && count > 1) count--;
+  if (word.endsWith('es') && !word.endsWith('ses') && !word.endsWith('zes') && count > 1) count--;
+
+  return Math.max(1, count);
 }
 
 function calculateFleschKincaid(text: string): number {
@@ -114,10 +124,23 @@ export function analyzeContent(content: string): ContentMetrics {
 export function calculateKeywordDensity(content: string, keyword: string): number {
   const textContent = content.replace(/<[^>]*>/g, ' ').toLowerCase();
   const words = textContent.split(/\s+/).filter(w => w.length > 0);
-  const keywordLower = keyword.toLowerCase();
-  
-  const keywordOccurrences = words.filter(w => w.includes(keywordLower)).length;
-  return (keywordOccurrences / words.length) * 100;
+  if (words.length === 0) return 0;
+
+  const keywordLower = keyword.toLowerCase().trim();
+  const keywordParts = keywordLower.split(/\s+/);
+
+  if (keywordParts.length === 1) {
+    const escaped = keywordLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+    const matches = textContent.match(regex);
+    return ((matches?.length || 0) / words.length) * 100;
+  }
+
+  const fullText = words.join(' ');
+  const escaped = keywordLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+  const matches = fullText.match(regex);
+  return ((matches?.length || 0) / words.length) * 100;
 }
 
 export function detectAITriggerPhrases(content: string): string[] {
@@ -280,7 +303,7 @@ export function calculateQualityScore(
   const factAccuracyBase = 80 + (hasStats ? 10 : 0) + (hasYears ? 10 : 0);
   
   return {
-    overall: Math.min(100, Math.max(0, overall + 5)), // Small boost for comprehensive content
+    overall: Math.min(100, Math.max(0, overall)),
     readability: Math.min(100, Math.max(0, readabilityBase)),
     seo: Math.min(100, Math.max(0, seoBase)),
     eeat: Math.min(100, Math.max(0, eeatBase)),
@@ -293,14 +316,16 @@ export function calculateQualityScore(
 
 export function removeAIPhrases(content: string): string {
   let cleaned = content;
-  
+
   AI_TRIGGER_PHRASES.forEach(phrase => {
-    const regex = new RegExp(`\\b${phrase}\\b`, 'gi');
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, 'gi');
     cleaned = cleaned.replace(regex, '');
   });
-  
-  // Clean up double spaces
-  cleaned = cleaned.replace(/\s+/g, ' ').trim();
-  
+
+  cleaned = cleaned.replace(/ {2,}/g, ' ');
+  cleaned = cleaned.replace(/>\s{2,}/g, '> ');
+  cleaned = cleaned.replace(/\s{2,}</g, ' <');
+
   return cleaned;
 }

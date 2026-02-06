@@ -105,9 +105,12 @@ export class SERPAnalyzer {
   }
 
   private estimateAvgWordCount(serpData: SERPResult[]): number {
-    // Estimate based on snippet length (typically 1/50 of article)
-    const avgSnippetLength = serpData.reduce((sum, r) => sum + r.snippet.split(' ').length, 0) / serpData.length;
-    return Math.round(avgSnippetLength * 50); // Rough estimate
+    const avgSnippetWords = serpData.reduce((sum, r) => sum + r.snippet.split(' ').length, 0) / serpData.length;
+
+    if (avgSnippetWords > 40) return 3000;
+    if (avgSnippetWords > 30) return 2500;
+    if (avgSnippetWords > 20) return 2000;
+    return 1800;
   }
 
   private extractCommonHeadings(serpData: SERPResult[], keyword: string): string[] {
@@ -161,28 +164,16 @@ export class SERPAnalyzer {
   }
 
   private classifyIntent(serpData: SERPResult[], keyword: string): SERPAnalysis['userIntent'] {
-    const keywordLower = keyword.toLowerCase();
-    
-    // Transactional signals
-    if (keywordLower.includes('buy') || keywordLower.includes('price') || 
-        keywordLower.includes('deal') || keywordLower.includes('discount') ||
-        keywordLower.includes('cheap') || keywordLower.includes('best')) {
-      return 'transactional';
-    }
-    
-    // Commercial investigation
-    if (keywordLower.includes('vs') || keywordLower.includes('review') ||
-        keywordLower.includes('comparison') || keywordLower.includes('alternative')) {
-      return 'commercial';
-    }
-    
-    // Navigational
-    if (keywordLower.includes('login') || keywordLower.includes('sign up') ||
-        keywordLower.includes('website') || keywordLower.includes('official')) {
-      return 'navigational';
-    }
-    
-    // Default to informational
+    const words = keyword.toLowerCase().split(/\s+/);
+
+    const transactionalWords = ['buy', 'price', 'deal', 'discount', 'cheap', 'purchase', 'order', 'coupon'];
+    const commercialWords = ['best', 'top', 'vs', 'versus', 'review', 'reviews', 'comparison', 'compare', 'alternative', 'alternatives'];
+    const navigationalWords = ['login', 'sign up', 'signup', 'website', 'official', 'download', 'app'];
+
+    if (words.some(w => transactionalWords.includes(w))) return 'transactional';
+    if (words.some(w => commercialWords.includes(w))) return 'commercial';
+    if (words.some(w => navigationalWords.includes(w))) return 'navigational';
+
     return 'informational';
   }
 

@@ -703,27 +703,23 @@ export class GodModeEngine {
         throw new Error('WordPress credentials not configured');
       }
 
-      // Call WordPress publish function
-      const response = await fetch(
-        'https://ousxeycrhvuwaejhpqgv.supabase.co/functions/v1/wordpress-publish',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            wpUrl: appConfig.wpUrl,
-            wpUsername: appConfig.wpUsername,
-            wpPassword: appConfig.wpAppPassword,
-            title: content.title,
-            content: content.content,
-            status: this.options.config.defaultStatus,
-            seoTitle: content.seoTitle,
-            metaDescription: content.metaDescription,
-            sourceUrl: item.url,
-          }),
-        }
-      );
+      const response = await fetch('/api/wordpress-publish', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          wpUrl: appConfig.wpUrl,
+          wpUsername: appConfig.wpUsername,
+          wpPassword: appConfig.wpAppPassword,
+          title: content.title,
+          content: content.content,
+          status: this.options.config.defaultStatus,
+          seoTitle: content.seoTitle,
+          metaDescription: content.metaDescription,
+          sourceUrl: item.url,
+        }),
+      });
 
       if (!response.ok) {
         throw new Error(`WordPress API error: ${response.status}`);

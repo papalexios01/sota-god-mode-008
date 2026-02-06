@@ -1205,11 +1205,11 @@ Output ONLY the meta description, nothing else.`;
 
   private buildVideoSection(videos: YouTubeVideo[]): string {
     return `
-<section class="video-resources" style="background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(34, 197, 94, 0.05) 100%); border-radius: 20px; padding: 32px; margin: 40px 0; border: 1px solid rgba(34, 197, 94, 0.2); box-shadow: 0 10px 40px rgba(0,0,0,0.1);">
-  <h2 style="margin-top: 0; display: flex; align-items: center; gap: 12px; color: #e5e7eb; font-size: 24px;">
-    <span style="font-size: 28px;">📺</span> Recommended Video Resources
+<section class="video-resources" style="background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border-radius: 20px; padding: 32px; margin: 40px 0; border: 2px solid #10b981; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.15);">
+  <h2 style="margin-top: 0; display: flex; align-items: center; gap: 12px; color: #1f2937; font-size: 24px; font-weight: 800;">
+    Recommended Video Resources
   </h2>
-  <p style="color: #9ca3af; margin-bottom: 24px; font-size: 16px;">Learn more from these expert video guides:</p>
+  <p style="color: #4b5563; margin-bottom: 24px; font-size: 16px;">Learn more from these expert video guides:</p>
   ${videos.map(v => this.youtubeService.formatVideoCard(v)).join('')}
 </section>
 `;

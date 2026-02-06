@@ -103,7 +103,6 @@ export class EEATValidator {
       improvements.push('Add update dates, fact-checking notices, and balanced perspectives');
     }
 
-    // Boost authoritativeness if author has credentials
     let authorityBoost = 0;
     if (authorInfo?.credentials && authorInfo.credentials.length > 0) {
       authorityBoost = Math.min(15, authorInfo.credentials.length * 5);
@@ -115,10 +114,12 @@ export class EEATValidator {
       });
     }
 
+    const adjustedAuthority = Math.min(100, authoritativeness + authorityBoost);
+
     const overall = Math.round(
-      (experience * 0.2) + 
-      (expertise * 0.3) + 
-      ((authoritativeness + authorityBoost) * 0.25) + 
+      (experience * 0.2) +
+      (expertise * 0.3) +
+      (adjustedAuthority * 0.25) +
       (trustworthiness * 0.25)
     );
 
@@ -126,7 +127,7 @@ export class EEATValidator {
       overall: Math.min(100, overall),
       experience,
       expertise,
-      authoritativeness: Math.min(100, authoritativeness + authorityBoost),
+      authoritativeness: adjustedAuthority,
       trustworthiness,
       improvements,
       signals

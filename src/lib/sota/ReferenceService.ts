@@ -122,39 +122,50 @@ export class ReferenceService {
   }
 
   private classifyReferenceType(url: string): Reference['type'] {
-    const lowerUrl = url.toLowerCase();
-    
-    if (lowerUrl.includes('.edu') || lowerUrl.includes('scholar') || lowerUrl.includes('pubmed') || lowerUrl.includes('arxiv')) {
-      return 'academic';
+    let hostname: string;
+    try {
+      hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    } catch {
+      return 'blog';
     }
-    if (lowerUrl.includes('.gov')) {
-      return 'government';
-    }
-    if (lowerUrl.includes('reuters') || lowerUrl.includes('bbc') || lowerUrl.includes('nytimes') || lowerUrl.includes('wsj')) {
-      return 'news';
-    }
-    if (lowerUrl.includes('techcrunch') || lowerUrl.includes('wired') || lowerUrl.includes('forbes') || lowerUrl.includes('hbr')) {
-      return 'industry';
-    }
+
+    const academicDomains = ['scholar.google.com', 'pubmed.ncbi.nlm.nih.gov', 'arxiv.org', 'sciencedirect.com', 'nature.com'];
+    const newsDomains = ['reuters.com', 'bbc.com', 'nytimes.com', 'wsj.com', 'theguardian.com'];
+    const industryDomains = ['techcrunch.com', 'wired.com', 'forbes.com', 'hbr.org', 'arstechnica.com', 'theverge.com'];
+
+    if (hostname.endsWith('.edu') || academicDomains.some(d => hostname === d || hostname.endsWith('.' + d))) return 'academic';
+    if (hostname.endsWith('.gov')) return 'government';
+    if (newsDomains.some(d => hostname === d || hostname.endsWith('.' + d))) return 'news';
+    if (industryDomains.some(d => hostname === d || hostname.endsWith('.' + d))) return 'industry';
+
     return 'blog';
   }
 
   calculateAuthorityScore(url: string): number {
-    const lowerUrl = url.toLowerCase();
-    
-    // Check for exact domain matches
+    let hostname: string;
+    try {
+      hostname = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    } catch {
+      return 50;
+    }
+
     for (const [domain, score] of Object.entries(AUTHORITY_DOMAINS)) {
-      if (lowerUrl.includes(domain)) {
-        return score;
+      if (domain.startsWith('.')) {
+        if (hostname.endsWith(domain) || hostname.endsWith(domain.slice(1))) {
+          return score;
+        }
+      } else {
+        if (hostname === domain || hostname.endsWith('.' + domain)) {
+          return score;
+        }
       }
     }
-    
-    // Default scores based on TLD
-    if (lowerUrl.includes('.gov')) return 90;
-    if (lowerUrl.includes('.edu')) return 85;
-    if (lowerUrl.includes('.org')) return 70;
-    
-    return 50; // Default for unknown domains
+
+    if (hostname.endsWith('.gov') || hostname.split('.').some(p => p === 'gov')) return 90;
+    if (hostname.endsWith('.edu') || hostname.split('.').some(p => p === 'edu')) return 85;
+    if (hostname.endsWith('.org')) return 70;
+
+    return 50;
   }
 
   async validateReference(url: string): Promise<{ valid: boolean; status?: number }> {
@@ -176,17 +187,17 @@ export class ReferenceService {
     const sortedRefs = [...references].sort((a, b) => b.authorityScore - a.authorityScore);
 
     return `
-<section class="references-section" style="margin-top: 48px; padding-top: 32px; border-top: 2px solid rgba(255,255,255,0.1);">
-  <h2 style="font-size: 24px; font-weight: 700; margin-bottom: 24px;">📚 References & Sources</h2>
-  <ol style="list-style: decimal; padding-left: 24px; line-height: 2;">
-    ${sortedRefs.map((ref, index) => `
+<section class="references-section" style="margin-top: 48px; padding-top: 32px; border-top: 3px solid #e5e7eb;">
+  <h2 style="font-size: 24px; font-weight: 800; margin-bottom: 24px; color: #1f2937;">References &amp; Sources</h2>
+  <ol style="list-style: decimal; padding-left: 24px; line-height: 2; color: #374151;">
+    ${sortedRefs.map((ref) => `
     <li style="margin-bottom: 12px;">
-      <a href="${ref.url}" target="_blank" rel="noopener noreferrer" style="color: #22c55e; text-decoration: none; font-weight: 500;">
+      <a href="${ref.url}" target="_blank" rel="noopener noreferrer" style="color: #059669; text-decoration: underline; font-weight: 500;">
         ${ref.title}
       </a>
-      <span style="color: #888; font-size: 13px;"> — ${ref.domain}</span>
-      ${ref.type === 'academic' ? '<span style="background: #3b82f6; color: white; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Academic</span>' : ''}
-      ${ref.type === 'government' ? '<span style="background: #8b5cf6; color: white; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Official</span>' : ''}
+      <span style="color: #6b7280; font-size: 13px;"> -- ${ref.domain}</span>
+      ${ref.type === 'academic' ? '<span style="background: #dbeafe; color: #1e40af; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Academic</span>' : ''}
+      ${ref.type === 'government' ? '<span style="background: #ede9fe; color: #5b21b6; font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 8px;">Official</span>' : ''}
     </li>
     `).join('')}
   </ol>

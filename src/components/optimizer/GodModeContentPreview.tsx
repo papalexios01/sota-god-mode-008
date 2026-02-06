@@ -60,24 +60,21 @@ export function GodModeContentPreview({ item, onClose }: GodModeContentPreviewPr
     setIsPublishing(true);
 
     try {
-      const response = await fetch(
-        'https://ousxeycrhvuwaejhpqgv.supabase.co/functions/v1/wordpress-publish',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            wpUrl: config.wpUrl,
-            wpUsername: config.wpUsername,
-            wpPassword: config.wpAppPassword,
-            title: content.title,
-            content: content.content,
-            status: 'draft', // Always draft for manual publish
-            seoTitle: content.seoTitle,
-            metaDescription: content.metaDescription,
-            slug: content.slug,
-          }),
-        }
-      );
+      const response = await fetch('/api/wordpress-publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wpUrl: config.wpUrl,
+          wpUsername: config.wpUsername,
+          wpPassword: config.wpAppPassword,
+          title: content.title,
+          content: content.content,
+          status: 'draft',
+          seoTitle: content.seoTitle,
+          metaDescription: content.metaDescription,
+          slug: content.slug,
+        }),
+      });
 
       const result = await response.json();
 
