@@ -1,9 +1,15 @@
-import { supabase } from '../supabaseClient';
+import { getSupabaseClient } from '../supabaseClient';
 import type { GeneratedContentStore } from '../store';
 
 const TABLE = 'generated_blog_posts';
 
 export async function ensureTableExists(): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('[ContentPersistence] Supabase client unavailable; skipping table check.');
+    return false;
+  }
+
   try {
     const { error } = await supabase
       .from(TABLE)
@@ -23,6 +29,12 @@ export async function ensureTableExists(): Promise<boolean> {
 }
 
 export async function loadAllBlogPosts(): Promise<GeneratedContentStore> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('[ContentPersistence] Supabase client unavailable; cannot load posts.');
+    return {};
+  }
+
   try {
     const { data, error } = await supabase
       .from(TABLE)
@@ -72,6 +84,12 @@ export async function loadAllBlogPosts(): Promise<GeneratedContentStore> {
 }
 
 export async function saveBlogPost(itemId: string, content: GeneratedContentStore[string]): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('[ContentPersistence] Supabase client unavailable; cannot save post.');
+    return false;
+  }
+
   try {
     const row = {
       id: content.id,
@@ -112,6 +130,12 @@ export async function saveBlogPost(itemId: string, content: GeneratedContentStor
 }
 
 export async function deleteBlogPost(itemId: string): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('[ContentPersistence] Supabase client unavailable; cannot delete post.');
+    return false;
+  }
+
   try {
     const { error } = await supabase
       .from(TABLE)
