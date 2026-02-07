@@ -17,6 +17,7 @@ const queryClient = new QueryClient({
 });
 
 const App = () => (
+  <div className="min-h-screen gradient-bg text-foreground">
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <SupabaseSyncProvider>
@@ -30,7 +31,8 @@ const App = () => (
         </BrowserRouter>
       </SupabaseSyncProvider>
     </TooltipProvider>
-  </QueryClientProvider>
+    </QueryClientProvider>
+</div>
 );
 
 export default App;

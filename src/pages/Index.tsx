@@ -37,7 +37,7 @@ const Index = () => {
       {/* Header */}
       <header className="px-6 py-4 sticky top-0 z-50 backdrop-blur supports-[backdrop-filter]:bg-background/40 border-b border-border/40">
         <div className="max-w-7xl mx-auto flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary/20 rounded-lg flex items-center justify-center">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center glass-card">
             <Zap className="w-6 h-6 text-primary" />
           </div>
           <div>
@@ -89,7 +89,7 @@ const Index = () => {
           {features.map((feature) => (
             <div
               key={feature.title}
-              className="bg-card border border-border rounded-2xl p-6 hover:border-primary/50 transition-colors"
+              className="glass-card rounded-2xl p-6 hover:border-primary/60 transition-all hover:-translate-y-0.5 hover:shadow-2xl"
             >
               <div className="w-12 h-12 bg-primary/20 rounded-xl flex items-center justify-center mb-4">
                 <feature.icon className="w-6 h-6 text-primary" />
