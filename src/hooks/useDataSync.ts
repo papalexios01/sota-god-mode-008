@@ -10,8 +10,8 @@ export function useDataSync() {
   const [error, setError] = useState<string | null>(null);
   const [tableMissing, setTableMissing] = useState(false);
 
-  const { 
-    generatedContentsStore, 
+  const {
+    generatedContentsStore,
     setGeneratedContent,
     contentItems,
     addContentItemWithId,
