@@ -6,6 +6,13 @@ import type { QualityScore, ContentMetrics } from './types';
 
 // AI trigger phrases to detect and remove
 const AI_TRIGGER_PHRASES = [
+  'as an ai',
+  'as a language model',
+  'i can\'t browse the web',
+  'in this article',
+  'this article will',
+  'we will explore',
+
   'in conclusion',
   'it\'s important to note',
   'it is worth noting',
@@ -325,15 +332,62 @@ export function calculateQualityScore(
 export function removeAIPhrases(content: string): string {
   let cleaned = content;
 
-  AI_TRIGGER_PHRASES.forEach(phrase => {
+  // Remove common AI-tells with light contextual safety:
+  // - remove as standalone phrases / transitions
+  // - avoid nuking substrings inside words
+  for (const phrase of AI_TRIGGER_PHRASES) {
     const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(escaped, 'gi');
-    cleaned = cleaned.replace(regex, '');
+
+    // Match phrase with optional punctuation and surrounding whitespace
+    const regex = new RegExp(`(^|[\s>])(${escaped})([\s,.:;!?)<]|$)`, 'gi');
+    cleaned = cleaned.replace(regex, (_m, p1, _p2, p3) => `${p1}${p3}`);
+  }
+
+  cleaned = cleaned
+    .replace(/\n\s*\n\s*\n+/g, '\n\n')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/>\s{2,}/g, '> ')
+    .replace(/\s{2,}</g, ' <')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/([,.;:!?]){2,}/g, '$1');
+
+  return cleaned.trim();
+}
+
+
+
+/**
+ * Final cheap polish: ensures scannability for WordPress HTML.
+ * - collapses long paragraphs
+ * - standardizes spacing
+ */
+export function polishReadability(html: string): string {
+  let out = html;
+
+  out = out.replace(/(<br\s*\/?>\s*){3,}/gi, '<br><br>');
+  out = out.replace(/\n{3,}/g, '\n\n');
+
+  // Split overly long <p> blocks
+  out = out.replace(/<p>([\s\S]*?)<\/p>/gi, (m, inner) => {
+    const plain = inner.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (plain.split(' ').length <= 75) return m;
+
+    const sentences = inner.split(/(?<=[.!?])\s+/);
+    let cur = '';
+    const paras: string[] = [];
+    for (const s of sentences) {
+      const next = (cur ? cur + ' ' : '') + s;
+      const wc = next.replace(/<[^>]+>/g, ' ').split(/\s+/).filter(Boolean).length;
+      if (wc > 70 && cur) {
+        paras.push(`<p>${cur.trim()}</p>`);
+        cur = s;
+      } else {
+        cur = next;
+      }
+    }
+    if (cur.trim()) paras.push(`<p>${cur.trim()}</p>`);
+    return paras.join('');
   });
 
-  cleaned = cleaned.replace(/ {2,}/g, ' ');
-  cleaned = cleaned.replace(/>\s{2,}/g, '> ');
-  cleaned = cleaned.replace(/\s{2,}</g, ' <');
-
-  return cleaned;
+  return out;
 }

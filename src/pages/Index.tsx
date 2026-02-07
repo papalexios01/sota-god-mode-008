@@ -33,9 +33,9 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen gradient-bg">
+    <div className="min-h-screen gradient-bg selection:bg-primary/30 selection:text-foreground">
       {/* Header */}
-      <header className="px-6 py-4">
+      <header className="px-6 py-4 sticky top-0 z-50 backdrop-blur supports-[backdrop-filter]:bg-background/40 border-b border-border/40">
         <div className="max-w-7xl mx-auto flex items-center gap-3">
           <div className="w-10 h-10 bg-primary/20 rounded-lg flex items-center justify-center">
             <Zap className="w-6 h-6 text-primary" />
@@ -58,10 +58,10 @@ const Index = () => {
       <main className="px-6 py-16 md:py-24">
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-4xl md:text-6xl font-bold text-foreground mb-2">
-            Transform Your Content Into
+            Turn Your Content Into
           </h2>
           <h2 className="text-4xl md:text-6xl font-bold gradient-text mb-8">
-            Ranking Machines
+            Premium Ranking Assets
           </h2>
           <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
             AI-powered SEO optimization that adapts to Google's algorithm in real-time.

@@ -23,7 +23,7 @@ import { YouTubeService, createYouTubeService } from './YouTubeService';
 import { ReferenceService, createReferenceService } from './ReferenceService';
 import { SOTAInternalLinkEngine, createInternalLinkEngine } from './SOTAInternalLinkEngine';
 import { SchemaGenerator, createSchemaGenerator } from './SchemaGenerator';
-import { calculateQualityScore, analyzeContent, removeAIPhrases } from './QualityValidator';
+import { calculateQualityScore, analyzeContent, removeAIPhrases, polishReadability } from './QualityValidator';
 import { EEATValidator, createEEATValidator } from './EEATValidator';
 import { generationCache } from './cache';
 import { NeuronWriterService, createNeuronWriterService, type NeuronWriterAnalysis } from './NeuronWriterService';
