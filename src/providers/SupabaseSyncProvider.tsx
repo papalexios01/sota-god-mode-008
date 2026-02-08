@@ -66,7 +66,7 @@ class ErrorBoundary extends Component<
     console.error('[SupabaseSyncProvider] Error caught:', error, errorInfo);
 
     // Log to console for debugging but don't block the app
-    if (error.message?.includes('supabase') || error.message?.includes('Supabase')) {
+    if (error.message?.includes('getSupabase()') || error.message?.includes('Supabase')) {
       console.warn('[SupabaseSyncProvider] Supabase-related error - app will continue in offline mode');
     }
   }
